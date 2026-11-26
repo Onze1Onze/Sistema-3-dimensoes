@@ -1,7 +1,21 @@
 name: Deploy GitHub Pages
 
 on:
+  # First publication: run this workflow manually after selecting
+  # Settings -> Pages -> Build and deployment -> Source: GitHub Actions.
   workflow_dispatch:
+  # Subsequent code changes deploy automatically.
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "viewer.html"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - "tsconfig.json"
 
 permissions:
   contents: read
@@ -29,6 +43,22 @@ jobs:
         run: npm test
       - name: Build extension
         run: npm run build
+      - name: Verify files required by Owlbear
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/manifest.json
+          test -s dist/index.html
+          test -s dist/viewer.html
+          test -s dist/icon.svg
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const manifest = JSON.parse(fs.readFileSync("dist/manifest.json", "utf8"));
+            if (manifest.manifest_version !== 1) throw new Error("Invalid Owlbear manifest_version");
+            if (!manifest.action?.popover?.endsWith("/index.html")) throw new Error("Manifest popover must reference the deployed index.html");
+            if (!manifest.icon?.endsWith("/icon.svg")) throw new Error("Manifest icon must reference the deployed icon.svg");
+            console.log("Manifest and all Owlbear entry files are present.");
+          '
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload Pages artifact
