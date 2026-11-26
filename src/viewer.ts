@@ -252,19 +252,19 @@ function updateRecord(item: OBRImage, record: RenderRecord, kind: "map" | "token
   if (kind === "map") {
     record.mesh.rotation.set(-Math.PI / 2, 0, 0);
     record.mesh.position.y = 0;
-    record.mesh.material.transparent = false;
+    record.material.transparent = false;
     record.mesh.renderOrder = Math.min(1000, Math.max(0, item.zIndex));
   } else if (kind === "prop") {
     record.mesh.rotation.set(-Math.PI / 2, 0, 0);
     record.mesh.position.y = 0;
-    record.mesh.material.transparent = true;
-    record.mesh.material.alphaTest = 0.03;
+    record.material.transparent = true;
+    record.material.alphaTest = 0.03;
     record.mesh.renderOrder = 2 + Math.min(1000, Math.max(0, item.zIndex));
   } else {
     record.mesh.rotation.set(0, 0, 0);
     record.mesh.position.y = size.height / 2;
-    record.mesh.material.transparent = true;
-    record.mesh.material.alphaTest = 0.08;
+    record.material.transparent = true;
+    record.material.alphaTest = 0.08;
     record.mesh.renderOrder = 10000 + Math.min(1000, Math.max(0, item.zIndex));
   }
 
