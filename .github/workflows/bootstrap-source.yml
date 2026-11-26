@@ -30,7 +30,11 @@ jobs:
           cat .bootstrap/part-*.b64 | tr -d '\r\n ' | base64 --decode > /tmp/sistema-3-dimensoes.tar.gz
           echo "905e532ea6725bd5dd7d9802007153e1eb910e9684607c7f4e46c9d8239143b3  /tmp/sistema-3-dimensoes.tar.gz" | sha256sum --check -
           tar -xzf /tmp/sistema-3-dimensoes.tar.gz -C .
-          rm -rf .bootstrap bootstrap-source.trigger .github/workflows/bootstrap-source.yml
+          rm -rf .bootstrap bootstrap-source.trigger
+          # The GitHub Actions token cannot add workflow files without the
+          # dedicated workflow permission. These two workflows are uploaded
+          # separately through the repository integration after extraction.
+          rm -f .github/workflows/ci.yml .github/workflows/deploy-pages.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A

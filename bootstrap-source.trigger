@@ -1,1 +1,1 @@
-Bootstrap payload is verified with SHA-256 before extraction. This file is removed by the bootstrap workflow.
+Bootstrap payload recheck requested after workflow-permission fix. SHA-256 is verified before extraction.
