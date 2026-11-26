@@ -1,0 +1,64 @@
+name: Bootstrap Sistema 3 Dimensoes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - bootstrap-source.trigger
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: bootstrap-sistema-3d
+  cancel-in-progress: false
+
+jobs:
+  expand-test-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Restore the complete source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .bootstrap/part-*.b64 | tr -d '\r\n ' | base64 --decode > /tmp/sistema-3-dimensoes.tar.gz
+          echo "905e532ea6725bd5dd7d9802007153e1eb910e9684607c7f4e46c9d8239143b3  /tmp/sistema-3-dimensoes.tar.gz" | sha256sum --check -
+          tar -xzf /tmp/sistema-3-dimensoes.tar.gz -C .
+          rm -rf .bootstrap bootstrap-source.trigger .github/workflows/bootstrap-source.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add Owlbear 3D extension source"
+          git push origin HEAD:main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Typecheck and production build
+        run: npm run build
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy extension to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
