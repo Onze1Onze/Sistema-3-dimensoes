@@ -90,3 +90,22 @@ O código não envia dados da sala para servidores externos. O Three.js e o SDK 
 
 - A workflow **CI** executa testes unitários, verificação TypeScript e build em cada push para `main` e pull request.
 - A publicação no GitHub Pages é manual pelo workflow **Deploy GitHub Pages** depois que a fonte **GitHub Actions** estiver habilitada em Settings → Pages.
+
+## Corrigir erro 404 no manifesto do Owlbear
+
+O endereço do manifesto é:
+
+`https://onze1onze.github.io/Sistema-3-dimensoes/manifest.json`
+
+**A publicação deve usar GitHub Actions, não "Deploy from a branch".** Este projeto precisa do build do Vite: o manifesto e as páginas finais são montados em `dist/`. Quando o Pages publica a raiz do código-fonte via Jekyll, `public/manifest.json` não fica na raiz publicada e o Owlbear recebe 404.
+
+Configuração inicial obrigatória:
+
+1. Abra **Settings → Pages** no repositório.
+2. Em **Build and deployment → Source**, selecione **GitHub Actions** (não selecione **Deploy from a branch**).
+3. Abra **Actions → Deploy GitHub Pages → Run workflow** e execute na branch `main`.
+4. Aguarde o workflow terminar com sucesso. Ele verifica explicitamente `dist/manifest.json`, `dist/index.html`, `dist/viewer.html` e `dist/icon.svg` antes de publicar.
+
+Depois da primeira publicação, alterações em `src/`, `public/` ou nos arquivos de build acionam a publicação automaticamente.
+
+A integração deste repositório consegue enviar código, mas não altera a configuração administrativa **Settings → Pages**. Essa seleção inicial precisa ser feita pelo proprietário do repositório.
