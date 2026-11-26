@@ -85,3 +85,8 @@ O código não envia dados da sala para servidores externos. O Three.js e o SDK 
 - https://docs.owlbear.rodeo/extensions/apis/interaction/
 - https://docs.owlbear.rodeo/extensions/reference/items/image/
 - https://docs.owlbear.rodeo/extensions/apis/player/
+
+## Automação do repositório
+
+- A workflow **CI** executa testes unitários, verificação TypeScript e build em cada push para `main` e pull request.
+- A publicação no GitHub Pages é manual pelo workflow **Deploy GitHub Pages** depois que a fonte **GitHub Actions** estiver habilitada em Settings → Pages.
