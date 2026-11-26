@@ -1,0 +1,24 @@
+{
+  "name": "owlbear-sistema-3-dimensoes",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --experimental-strip-types --test tests/*.node.test.mjs"
+  },
+  "dependencies": {
+    "@owlbear-rodeo/sdk": "^3.1.0",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.180.0",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  }
+}

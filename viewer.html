@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0d1118" />
+    <title>Sistema 3 Dimensões · Visualizador</title>
+  </head>
+  <body class="viewer-body">
+    <div id="viewer-root">
+      <canvas id="scene-canvas" aria-label="Visualização tridimensional do mapa"></canvas>
+      <header class="viewer-topbar">
+        <div class="viewer-brand">
+          <span class="mini-mark" aria-hidden="true">3D</span>
+          <div><strong>Sistema 3 Dimensões</strong><small id="scene-status">Preparando cena…</small></div>
+        </div>
+        <div class="top-actions">
+          <button class="tool-button" id="view-iso" type="button" title="Vista isométrica">Isométrica</button>
+          <button class="tool-button" id="view-top" type="button" title="Vista superior">Superior</button>
+          <button class="tool-button" id="camera-reset" type="button" title="Centralizar câmera">Centralizar</button>
+          <button class="close-button" id="close-viewer" type="button" title="Fechar modo 3D" aria-label="Fechar modo 3D">×</button>
+        </div>
+      </header>
+      <div class="viewer-bottom-left">
+        <span class="legend-dot map-dot"></span><span id="map-count">0 mapas</span>
+        <span class="legend-dot token-dot"></span><span id="token-count">0 miniaturas</span>
+        <span class="legend-dot prop-dot"></span><span id="prop-count">0 objetos</span>
+      </div>
+      <div class="viewer-help"><kbd>Botão direito</kbd> girar · <kbd>Scroll</kbd> zoom · <kbd>WASD</kbd> mover câmera · Arraste uma miniatura para movê-la</div>
+      <div id="message-panel" class="message-panel" hidden role="alert">
+        <div class="message-symbol" id="message-symbol">!</div>
+        <h2 id="message-title">Aguardando cena</h2>
+        <p id="message-body">Carregando dados da sala.</p>
+        <button id="message-retry" class="secondary-button" type="button">Tentar novamente</button>
+      </div>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </div>
+    <script type="module" src="/src/viewer.ts"></script>
+  </body>
+</html>

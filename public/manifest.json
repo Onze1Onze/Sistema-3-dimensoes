@@ -1,0 +1,15 @@
+{
+  "name": "Sistema 3 Dimensões",
+  "version": "0.1.0",
+  "manifest_version": 1,
+  "description": "Visualize mapas e miniaturas do Owlbear Rodeo em um tabuleiro 3D sincronizado.",
+  "author": "Onze1Onze",
+  "icon": "https://onze1onze.github.io/Sistema-3-dimensoes/icon.svg",
+  "action": {
+    "title": "Sistema 3D",
+    "icon": "https://onze1onze.github.io/Sistema-3-dimensoes/icon.svg",
+    "popover": "https://onze1onze.github.io/Sistema-3-dimensoes/index.html",
+    "width": 360,
+    "height": 330
+  }
+}
