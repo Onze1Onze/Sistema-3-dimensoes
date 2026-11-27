@@ -1623,8 +1623,13 @@ function endTokenDrag(): void {
 renderer.domElement.addEventListener("pointerdown", (event: PointerEvent) => {
   // Toque primário e botão esquerdo do mouse iniciam o mesmo gesto de arraste.
   // Segundo dedo continua disponível para o OrbitControls tratar gestos de câmera.
-  if (blockedByFog || activePointerGesture ||
+  if (blockedByFog || activePointerGesture || sceneToolGesture ||
       (event.pointerType === "mouse" && event.button !== 0) || event.isPrimary === false) return;
+  if (activeSceneTool === "pan") return;
+  if (activeSceneTool !== "select") {
+    startSceneToolGesture(event);
+    return;
+  }
 
   const record = findTokenAtPointer(event);
   if (!record) {
@@ -1687,6 +1692,11 @@ renderer.domElement.addEventListener("pointerdown", (event: PointerEvent) => {
 }, { capture: true });
 
 window.addEventListener("pointermove", (event: PointerEvent) => {
+  if (sceneToolGesture?.pointerId === event.pointerId) {
+    event.preventDefault();
+    moveSceneToolGesture(event);
+    return;
+  }
   if (emptyClickCandidate?.pointerId === event.pointerId) {
     const dx = event.clientX - emptyClickCandidate.x;
     const dy = event.clientY - emptyClickCandidate.y;
@@ -1705,6 +1715,10 @@ window.addEventListener("pointermove", (event: PointerEvent) => {
 }, { capture: true });
 
 window.addEventListener("pointerup", (event: PointerEvent) => {
+  if (sceneToolGesture?.pointerId === event.pointerId) {
+    endSceneToolGesture(event);
+    return;
+  }
   const wasEmptyClick = emptyClickCandidate?.pointerId === event.pointerId;
   emptyClickCandidate = null;
 
@@ -1733,6 +1747,7 @@ window.addEventListener("pointerup", (event: PointerEvent) => {
 }, { capture: true });
 
 window.addEventListener("pointercancel", (event: PointerEvent) => {
+  if (sceneToolGesture?.pointerId === event.pointerId) endSceneToolGesture(event, true);
   emptyClickCandidate = null;
   const gesture = activePointerGesture;
   if (gesture?.pointerId === event.pointerId) {
@@ -1750,7 +1765,49 @@ renderer.domElement.addEventListener("lostpointercapture", (event: PointerEvent)
   // caso o gesto precisa continuar vivo até o SDK concluir a interação.
   if (!gesture || gesture.pointerId !== event.pointerId || gesture.released) return;
   finishPendingPointerGesture(gesture);
+  if (sceneToolGesture?.pointerId === event.pointerId) endSceneToolGesture({ pointerId: event.pointerId } as PointerEvent, true);
 });
+
+sceneToolButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const tool = button.dataset.sceneTool as SceneTool | undefined;
+    if (tool && Object.hasOwn(TOOL_COPY, tool)) setActiveSceneTool(tool);
+  });
+});
+toolSettingsToggle?.addEventListener("click", () => {
+  if (toolSettingsPanel?.hidden) openToolSettings();
+  else if (toolSettingsPanel) toolSettingsPanel.hidden = true;
+});
+toolSettingsClose?.addEventListener("click", () => {
+  if (toolSettingsPanel) toolSettingsPanel.hidden = true;
+});
+integrationsToggle?.addEventListener("click", () => {
+  if (integrationsPanel) integrationsPanel.hidden = !integrationsPanel.hidden;
+  if (toolSettingsPanel) toolSettingsPanel.hidden = true;
+});
+integrationsClose?.addEventListener("click", () => {
+  if (integrationsPanel) integrationsPanel.hidden = true;
+});
+toolUndoButton?.addEventListener("click", () => void undoLastSceneToolItem());
+strokeWidthInput?.addEventListener("input", () => {
+  if (strokeWidthValue) strokeWidthValue.value = `${strokeWidthInput.value} px`;
+  if (sceneToolGesture) updateSceneToolPreview(sceneToolGesture);
+});
+fillOpacityInput?.addEventListener("input", () => {
+  if (fillOpacityValue) fillOpacityValue.value = `${fillOpacityInput.value}%`;
+  if (sceneToolGesture) updateSceneToolPreview(sceneToolGesture);
+});
+strokeColorInput?.addEventListener("input", () => {
+  if (sceneToolGesture) updateSceneToolPreview(sceneToolGesture);
+});
+fillColorInput?.addEventListener("input", () => {
+  if (sceneToolGesture) updateSceneToolPreview(sceneToolGesture);
+});
+fireRadiusInput?.addEventListener("input", () => {
+  if (fireRadiusValue) fireRadiusValue.value = `${fireRadiusInput.value} células`;
+});
+toolUndoButton && (toolUndoButton.disabled = true);
+setActiveSceneTool("select");
 
 scaleDownButton?.addEventListener("click", () => void scaleSelectedTokens(0.9));
 scaleUpButton?.addEventListener("click", () => void scaleSelectedTokens(1.1));
@@ -1801,7 +1858,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 function moveCameraWithKeys(delta: number): void {
-  if (keysDown.size === 0 || dragState) return;
+  if (keysDown.size === 0 || dragState || sceneToolGesture) return;
   const forward = new THREE.Vector3();
   camera.getWorldDirection(forward);
   forward.y = 0;
@@ -1822,6 +1879,7 @@ function animate(): void {
   moveCameraWithKeys(1 / 60);
   controls.update();
   updateBillboardFacing();
+  updateFireEffects(performance.now() / 1000);
   renderer.render(scene, camera);
 }
 
