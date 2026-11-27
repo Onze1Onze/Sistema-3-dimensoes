@@ -2,7 +2,9 @@
 
 Protótipo de extensão do Owlbear Rodeo que abre uma visualização tridimensional da cena atual usando Three.js. O Owlbear continua sendo a fonte de verdade para mapas, tokens e permissões.
 
-## Estado da versão 0.1.0
+## Estado da versão 1.0.1
+
+Esta atualização estabiliza a interação direta com miniaturas no ambiente 3D. O arraste só inicializa a interação do Owlbear depois que o dedo ou ponteiro realmente se desloca; as permissões são consultadas em paralelo e os eventos de movimento, soltura e cancelamento são acompanhados na janela do visualizador. Isso reduz a latência percebida e evita que um simples toque dispare uma interação de movimento.
 
 Leia também a [especificação técnica completa](docs/ESPECIFICACAO_TECNICA.md) e o [roteiro de desenvolvimento](docs/ROADMAP.md).
 
@@ -17,6 +19,7 @@ Implementado nesta primeira entrega:
 - Movimento de miniaturas autorizado pelo SDK, usando `OBR.interaction`.
 - Seleção de tokens sincronizada com a seleção do jogador no Owlbear (`OBR.player.select/getSelection/onChange`).
 - Seleção múltipla com Shift e Ctrl/Cmd, deseleção ao clicar no espaço vazio e destaque visual dos tokens selecionados.
+- Arraste direto com toque, caneta ou mouse sobre a miniatura no canvas 3D, com captura do ponteiro e atualização contínua da posição no Owlbear.
 - Arraste conjunto de tokens selecionados, mantendo posições relativas e deslocando também anexos/subanexos da hierarquia.
 - Barra contextual 3D para girar, redimensionar, bloquear/desbloquear, ocultar/mostrar (somente mestre) e excluir tokens selecionados.
 - Verificação das permissões de atualização/exclusão antes de alterar itens da cena.
@@ -46,6 +49,8 @@ O Vite iniciará em `http://localhost:5173`. No perfil do Owlbear Rodeo, adicion
 Habilite a extensão em uma sala e clique em **Sistema 3D**.
 
 ## Compilar e testar
+
+A versão publicada é identificada como **1.0.1** no package.json, no manifest.json e na interface inicial. O CI verifica que esses identificadores permanecem consistentes.
 
 ```bash
 npm test
