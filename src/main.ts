@@ -7,6 +7,7 @@ const status = document.querySelector<HTMLDivElement>("#launcher-status");
 const button = document.querySelector<HTMLButtonElement>("#launch-button");
 
 let sceneReady = false;
+let isOpeningViewer = false;
 let unsubscribeSceneReadiness: (() => void) | null = null;
 
 function setStatus(message: string, ready = false): void {
@@ -21,7 +22,7 @@ function setStatus(message: string, ready = false): void {
 
 function applySceneReadiness(ready: boolean): void {
   sceneReady = ready;
-  if (button) button.disabled = !ready;
+  if (button) button.disabled = !ready || isOpeningViewer;
 
   if (ready) {
     setStatus("Cena carregada. O modo 3D está disponível.", true);
@@ -57,8 +58,9 @@ if (!OBR.isAvailable) {
 }
 
 button?.addEventListener("click", async () => {
-  if (button.disabled || !sceneReady) return;
+  if (isOpeningViewer || button.disabled || !sceneReady) return;
 
+  isOpeningViewer = true;
   button.disabled = true;
   const label = button.querySelector("span");
   if (label) label.textContent = "Abrindo visualizador…";
@@ -67,8 +69,10 @@ button?.addEventListener("click", async () => {
     // Revalida no clique para evitar abrir o modal se a cena tiver sido
     // fechada no intervalo entre o evento de prontidão e a interação.
     const readyNow = await OBR.scene.isReady();
-    applySceneReadiness(readyNow);
-    if (!readyNow) return;
+    if (!readyNow) {
+      applySceneReadiness(false);
+      return;
+    }
 
     await OBR.modal.open({
       id: MODAL_ID,
@@ -81,6 +85,7 @@ button?.addEventListener("click", async () => {
     console.error("[Sistema 3D] Não foi possível abrir o visualizador:", error);
     setStatus("Falha ao abrir o modo 3D. Feche e tente novamente.");
   } finally {
+    isOpeningViewer = false;
     button.disabled = !sceneReady;
     if (label) label.textContent = "Entrar no modo 3D";
   }
