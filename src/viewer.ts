@@ -333,6 +333,7 @@ function getTexture(url: string, onLoad: (texture: THREE.Texture) => void, onErr
   }
 
   void request.then(onLoad, (error: unknown) => {
+    if (viewerDisposed) return;
     console.warn("[Sistema 3D] Não foi possível carregar uma textura. Verifique o CORS do arquivo.", error);
     onError();
   });
@@ -1282,6 +1283,7 @@ async function addSceneItems(
       return;
     }
     await OBR.scene.items.addItems(items);
+    if (expectedSceneVersion !== sceneSessionVersion || viewerDisposed) return;
     lastCreatedSceneItemIds = items.map((item) => item.id);
     if (toolUndoButton) toolUndoButton.disabled = false;
     notify(items.length > 1 ? "Elementos adicionados à cena." : "Item adicionado à cena.");
@@ -1563,6 +1565,20 @@ async function undoLastSceneToolItem(): Promise<void> {
 
 type TokenPermission = "CHARACTER_UPDATE" | "CHARACTER_DELETE" | "MOUNT_UPDATE" | "MOUNT_DELETE";
 
+const UPDATE_PERMISSION_BY_LAYER: Record<string, string> = {
+  MAP: "MAP_UPDATE",
+  DRAWING: "DRAWING_UPDATE",
+  PROP: "PROP_UPDATE",
+  MOUNT: "MOUNT_UPDATE",
+  CHARACTER: "CHARACTER_UPDATE",
+  ATTACHMENT: "ATTACHMENT_UPDATE",
+  NOTE: "NOTE_UPDATE",
+  TEXT: "TEXT_UPDATE",
+  RULER: "RULER_UPDATE",
+  FOG: "FOG_UPDATE",
+  POINTER: "POINTER_UPDATE",
+};
+
 const DELETE_PERMISSION_BY_LAYER: Record<string, string> = {
   MAP: "MAP_DELETE",
   DRAWING: "DRAWING_DELETE",
@@ -1598,6 +1614,33 @@ async function getPermittedTokenItems(items: Item[], operation: "UPDATE" | "DELE
   );
   return items.filter((item) => {
     if (!allowedPermissions.has(getTokenPermission(item, operation))) return false;
+    if (item.layer === "CHARACTER" &&
+        !canModifyCharacter(role, ownerOnly, item.createdUserId, OBR.player.id)) return false;
+    return true;
+  });
+}
+
+async function getPermittedAttachedItems(items: Item[]): Promise<Item[]> {
+  if (items.length === 0) return [];
+  const permissions = new Map<Item, string>();
+  for (const item of items) {
+    const permission = UPDATE_PERMISSION_BY_LAYER[item.layer];
+    if (!permission) return [];
+    permissions.set(item, permission);
+  }
+  const requiredPermissions = [...new Set(permissions.values())];
+  const [permissionResults, ownerOnly, role] = await Promise.all([
+    Promise.all(requiredPermissions.map(async (permission) =>
+      [permission, await OBR.player.hasPermission(permission as "ATTACHMENT_UPDATE")] as const)),
+    items.some((item) => item.layer === "CHARACTER")
+      ? OBR.player.hasPermission("CHARACTER_OWNER_ONLY")
+      : Promise.resolve(false),
+    OBR.player.getRole(),
+  ]);
+  const allowedPermissions = new Set(permissionResults.filter(([, allowed]) => allowed).map(([permission]) => permission));
+  return items.filter((item) => {
+    if (!allowedPermissions.has(permissions.get(item)!)) return false;
+    if (item.locked) return false;
     if (item.layer === "CHARACTER" &&
         !canModifyCharacter(role, ownerOnly, item.createdUserId, OBR.player.id)) return false;
     return true;
@@ -1851,6 +1894,19 @@ async function beginTokenDrag(
     for (const item of [...attachmentState, ...selectedState]) stateById.set(item.id, item);
     const baseState = [...stateById.values()];
     if (baseState.length === 0) {
+      finishPendingPointerGesture(gesture);
+      return;
+    }
+
+    const rootIds = new Set(movableIds);
+    const attachedItems = baseState.filter((item) => !rootIds.has(item.id));
+    const permittedAttachments = await getPermittedAttachedItems(attachedItems);
+    if (!gesture.isActive || activePointerGesture !== gesture) {
+      finishPendingPointerGesture(gesture);
+      return;
+    }
+    if (permittedAttachments.length !== attachedItems.length) {
+      notify("Não foi possível mover o grupo: um ou mais anexos estão bloqueados ou sem permissão de atualização.");
       finishPendingPointerGesture(gesture);
       return;
     }
