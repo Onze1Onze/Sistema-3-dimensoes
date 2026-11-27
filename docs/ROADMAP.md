@@ -1,5 +1,13 @@
 # Roteiro de desenvolvimento
 
+## Versão 1.3.0 — Redimensionamento iterativo do mapa
+
+- [x] Adicionar controle deslizante de 50% a 200% para redimensionar mapas sem cliques repetidos.
+- [x] Pré-visualizar a dimensão continuamente no visualizador 3D e gravar somente ao soltar o controle.
+- [x] Redimensionar todas as imagens visíveis da camada MAP em uma única operação, ao redor do centro comum.
+- [x] Preservar posição relativa, sobreposição, rotação e proporção entre blocos de mapa.
+- [x] Respeitar a permissão nativa MAP_UPDATE e adicionar testes da transformação geométrica.
+
 ## Versão 1.2.2 — Enquadramento oficial da cena e visibilidade dos tokens
 
 - [x] Usar `OBR.scene.items.getItemBounds` para obter os limites transformados reais dos mapas.

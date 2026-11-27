@@ -2,9 +2,9 @@
 
 Extensão do Owlbear Rodeo que abre uma visualização tridimensional da cena atual usando Three.js. O Owlbear continua sendo a fonte de verdade para mapas, tokens, desenhos, réguas, textos e permissões.
 
-## Estado da versão 1.2.2
+## Estado da versão 1.3.0
 
-A versão 1.2.2 usa os limites transformados oficiais do Owlbear para posicionar o referencial 3D, em vez de estimar a caixa do mapa a partir dos pixels. Também impede que a névoa visual do Three.js escureça as miniaturas e ajusta o alcance da câmera para cenas grandes.
+A versão 1.3.0 usa os limites transformados oficiais do Owlbear para posicionar o referencial 3D, em vez de estimar a caixa do mapa a partir dos pixels. Também impede que a névoa visual do Three.js escureça as miniaturas e ajusta o alcance da câmera para cenas grandes.
 
 As ferramentas da versão 1.1.1 permanecem disponíveis. Ações de desenho e medição criam itens nativos na cena do Owlbear, mantendo a compatibilidade com o modo 2D.
 
@@ -24,6 +24,7 @@ Implementado nesta primeira entrega:
 - Arraste direto com toque, caneta ou mouse sobre a miniatura no canvas 3D, com captura do ponteiro e atualização contínua da posição no Owlbear.
 - Arraste conjunto de tokens selecionados, mantendo posições relativas e deslocando também anexos/subanexos da hierarquia.
 - Barra contextual 3D para girar, redimensionar, bloquear/desbloquear, ocultar/mostrar (somente mestre) e excluir tokens selecionados.
+- Redimensionamento em grupo das imagens da camada MAP por controle deslizante, com prévia contínua e gravação única no Owlbear.
 - Dock de ferramentas no espaço 3D com seleção, navegação da câmera, medição, marcador livre, pincel preenchido, linha, retângulo, círculo, triângulo, hexágono, fogo visual 3D e anotações de texto.
 - Medição pelo método oficial `OBR.scene.grid.getDistance`, respeitando escala e fórmula de distância configuradas na cena do Owlbear.
 - Réguas persistentes como itens nativos da camada `RULER`; medições temporárias aparecem como sobreposição no espaço 3D.
@@ -62,7 +63,7 @@ Habilite a extensão em uma sala e clique em **Sistema 3D**.
 
 ## Compilar e testar
 
-A versão publicada é identificada como **1.2.2** no package.json, no manifest.json e na interface inicial. O CI verifica que esses identificadores permanecem consistentes.
+A versão publicada é identificada como **1.3.0** no package.json, no manifest.json e na interface inicial. O CI verifica que esses identificadores permanecem consistentes.
 
 ```bash
 npm test
@@ -71,6 +72,10 @@ npm run preview
 ```
 
 O build de produção fica na pasta `dist/`. O repositório está configurado para publicação pelo GitHub Pages via GitHub Actions; depois de habilitar Pages em **Settings → Pages → Build and deployment → Source: GitHub Actions**, a URL de instalação será `https://onze1onze.github.io/Sistema-3-dimensoes/manifest.json`.
+
+## Redimensionamento conjunto do mapa
+
+Use **Escala mapa** na seção **Cena** do painel lateral. Arraste o controle entre 50% e 200% para visualizar o novo tamanho em tempo real; ao soltar, a extensão grava uma única atualização para todas as imagens visíveis da camada `MAP`. A composição é escalada em torno do centro geral, preservando as distâncias, sobreposições e proporções entre blocos. A operação exige a permissão nativa `MAP_UPDATE` e sincroniza a cena 2D e o visualizador 3D.
 
 ## Interação com tokens no modo 3D
 

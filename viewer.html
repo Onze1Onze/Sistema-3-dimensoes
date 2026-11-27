@@ -76,6 +76,9 @@
       <symbol id="i-retry" viewBox="0 0 24 24">
         <path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.5 9A7 7 0 0 1 18 6l2 1M4 17l2-1a7 7 0 0 0 12.5-3"/>
       </symbol>
+      <symbol id="i-map-scale" viewBox="0 0 24 24">
+        <path d="M12 3v18m-5-5 5 5 5-5M7 6l5-3 5 3M4 12h16"/>
+      </symbol>
     </svg>
 
     <div id="viewer-root">
@@ -163,6 +166,9 @@
           <button class="scene-tool" type="button" data-scene-tool="text" title="Adicionar um texto à cena" aria-label="Adicionar texto" aria-pressed="false">
             <svg><use href="#i-text"/></svg><span>Texto</span>
           </button>
+          <button class="scene-tool" id="map-scale-toggle" type="button" title="Redimensionar todos os mapas em conjunto" aria-label="Redimensionar mapa" aria-expanded="false">
+            <svg><use href="#i-map-scale"/></svg><span>Escala mapa</span>
+          </button>
         </div>
 
         <div class="tool-group tool-group-utilities">
@@ -215,6 +221,20 @@
             <textarea id="scene-text-value" rows="3" maxlength="400" placeholder="Escreva uma anotação…"></textarea>
             <small>Até 400 caracteres. Clique no mapa para posicionar.</small>
           </label>
+        </div>
+      </aside>
+
+      <aside id="map-scale-panel" class="tool-settings map-scale-panel" hidden aria-label="Redimensionar todos os mapas">
+        <div class="tool-settings-header">
+          <div><span class="panel-index">DIMENSÕES</span><strong>Escala do mapa</strong><small>Redimensione todas as imagens MAP de uma vez</small></div>
+          <button id="map-scale-close" type="button" aria-label="Fechar escala do mapa"><svg><use href="#i-close"/></svg></button>
+        </div>
+        <div class="tool-settings-content">
+          <label class="setting-range" for="map-scale-input">
+            <span>Tamanho relativo <output id="map-scale-value" for="map-scale-input">100%</output></span>
+            <input id="map-scale-input" type="range" min="50" max="200" step="1" value="100" />
+          </label>
+          <p>Arraste para ver a prévia em tempo real. Ao soltar, todas as imagens da camada MAP são redimensionadas juntas e a mudança é salva no Owlbear, tanto no 2D quanto no 3D.</p>
         </div>
       </aside>
 

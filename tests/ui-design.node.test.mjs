@@ -28,7 +28,8 @@ test("launcher and viewer keep the visual redesign assets local and complete", a
     "toggle-token-lock", "toggle-token-visibility", "delete-selected-tokens",
     "deselect-tokens", "map-count", "token-count", "prop-count",
     "message-panel", "message-symbol", "message-title", "message-body",
-    "message-retry", "toast",
+    "message-retry", "toast", "map-scale-toggle", "map-scale-panel",
+    "map-scale-close", "map-scale-input", "map-scale-value",
   ];
   for (const id of requiredIds) assert.ok(viewer.includes(`id="${id}"`), `Missing viewer element #${id}`);
 
@@ -42,6 +43,8 @@ test("launcher and viewer keep the visual redesign assets local and complete", a
   assert.deepEqual(actualTools, expectedTools);
 
   assert.doesNotMatch(launcher + viewer + icon, /\p{Extended_Pictographic}/u, "UI and app icon must not contain emoji");
+  assert.match(viewer, /type="range" min="50" max="200" step="1" value="100"/);
+  assert.match(viewer, /redimensionadas juntas/);
   assert.match(styles, /:focus-visible/);
   assert.match(styles, /\.scene-tool:hover/);
   assert.match(styles, /\.scene-tool\.active/);
