@@ -492,64 +492,256 @@ function findTokenAtPointer(event: PointerEvent): RenderRecord | null {
   return id ? records.get(id) ?? null : null;
 }
 
-async function beginTokenDrag(record: RenderRecord, event: PointerEvent): Promise<void> {
+function getSelectedTokenItems(): Item[] {
+  return currentItems.filter((item) =>
+    selectedTokenIds.has(item.id) &&
+    (item.layer === "CHARACTER" || item.layer === "MOUNT") &&
+    item.type === "IMAGE" &&
+    "image" in item,
+  );
+}
+
+function syncSelectedTokens(ids: string[] = []): void {
+  selectedTokenIds = new Set(ids.filter((id) => records.get(id)?.object.parent === tokenRoot));
+  for (const [id, record] of records) {
+    if (record.selectionRing) record.selectionRing.visible = selectedTokenIds.has(id);
+  }
+  refreshTokenToolbar();
+}
+
+function refreshTokenToolbar(): void {
+  const items = getSelectedTokenItems();
+  if (tokenToolbar) tokenToolbar.hidden = items.length === 0;
+  if (selectionLabel) {
+    selectionLabel.textContent = items.length === 1
+      ? (items[0].name || "1 token selecionado")
+      : items.length + " tokens selecionados";
+  }
+  if (lockButton) lockButton.textContent = items.length > 0 && items.every((item) => item.locked) ? "Desbloquear" : "Bloquear";
+  if (visibilityButton) {
+    visibilityButton.hidden = currentPlayerRole !== "GM";
+    visibilityButton.textContent = items.length > 0 && items.every((item) => item.visible === false) ? "Mostrar" : "Ocultar";
+  }
+}
+
+async function selectTokenFrom3D(itemId: string, event: PointerEvent): Promise<{ ids: string[]; toggledOff: boolean }> {
+  const current = (await OBR.player.getSelection()) ?? [];
+  const toggle = event.ctrlKey || event.metaKey;
+  const wasSelected = current.includes(itemId);
+  const next = !event.shiftKey && !toggle && wasSelected
+    ? current
+    : nextTokenSelection(current, itemId, { additive: event.shiftKey, toggle });
+
+  if (next.length === 0) await OBR.player.deselect();
+  else await OBR.player.select(next, true);
+  syncSelectedTokens(next);
+  return { ids: next, toggledOff: toggle && wasSelected };
+}
+
+function getMapPositionAtPointer(event: PointerEvent, frame: SceneFrame): { x: number; y: number } | null {
+  const rect = renderer.domElement.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hit = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(groundPlane, hit)) return null;
+  return worldToMap(hit.x, hit.z, frame);
+}
+
+async function canUpdateTokenItems(items: Item[], operation: "UPDATE" | "DELETE"): Promise<boolean> {
+  for (const item of items) {
+    const permission = item.layer === "CHARACTER"
+      ? operation === "UPDATE" ? "CHARACTER_UPDATE" : "CHARACTER_DELETE"
+      : operation === "UPDATE" ? "MOUNT_UPDATE" : "MOUNT_DELETE";
+    if (!await OBR.player.hasPermission(permission)) return false;
+  }
+  return true;
+}
+
+async function rotateSelectedTokens(amount: number): Promise<void> {
+  const items = getSelectedTokenItems();
+  if (items.length === 0) return;
+  if (items.some((item) => item.locked)) {
+    notify("Desbloqueie os tokens antes de girá-los.");
+    return;
+  }
+  try {
+    if (!await canUpdateTokenItems(items, "UPDATE")) {
+      notify("Você não tem permissão para editar todos os tokens selecionados.");
+      return;
+    }
+    const ids = new Set(items.map((item) => item.id));
+    await OBR.scene.items.updateItems(items, (draft) => {
+      for (const item of draft) {
+        if (ids.has(item.id)) item.rotation = normalizeRotation(item.rotation + amount);
+      }
+    });
+  } catch (error) {
+    console.error("[Sistema 3D] Falha ao girar tokens:", error);
+    notify("Não foi possível girar os tokens selecionados.");
+  }
+}
+
+async function toggleSelectedTokenLock(): Promise<void> {
+  const items = getSelectedTokenItems();
+  if (items.length === 0) return;
+  try {
+    if (!await canUpdateTokenItems(items, "UPDATE")) {
+      notify("Você não tem permissão para bloquear ou desbloquear todos os tokens selecionados.");
+      return;
+    }
+    const lock = !items.every((item) => item.locked);
+    const ids = new Set(items.map((item) => item.id));
+    await OBR.scene.items.updateItems(items, (draft) => {
+      for (const item of draft) if (ids.has(item.id)) item.locked = lock;
+    });
+    notify(lock ? "Tokens bloqueados." : "Tokens desbloqueados.");
+  } catch (error) {
+    console.error("[Sistema 3D] Falha ao alterar bloqueio:", error);
+    notify("Não foi possível alterar o bloqueio dos tokens.");
+  }
+}
+
+async function toggleSelectedTokenVisibility(): Promise<void> {
+  const items = getSelectedTokenItems();
+  if (items.length === 0) return;
+  try {
+    if (await OBR.player.getRole() !== "GM") {
+      notify("Somente o mestre pode ocultar ou mostrar tokens.");
+      return;
+    }
+    if (!await canUpdateTokenItems(items, "UPDATE")) {
+      notify("Você não tem permissão para alterar a visibilidade desses tokens.");
+      return;
+    }
+    const visible = !items.every((item) => item.visible === false);
+    const ids = new Set(items.map((item) => item.id));
+    await OBR.scene.items.updateItems(items, (draft) => {
+      for (const item of draft) if (ids.has(item.id)) item.visible = !visible;
+    });
+    await OBR.player.deselect(items.map((item) => item.id));
+    syncSelectedTokens([]);
+  } catch (error) {
+    console.error("[Sistema 3D] Falha ao alterar visibilidade:", error);
+    notify("Não foi possível alterar a visibilidade dos tokens.");
+  }
+}
+
+async function deleteSelectedTokens(): Promise<void> {
+  const items = getSelectedTokenItems();
+  if (items.length === 0) return;
+  if (!await canUpdateTokenItems(items, "DELETE")) {
+    notify("Você não tem permissão para excluir todos os tokens selecionados.");
+    return;
+  }
+  const count = items.length;
+  if (!window.confirm("Excluir " + count + (count === 1 ? " token selecionado?" : " tokens selecionados?"))) return;
+  try {
+    const ids = items.map((item) => item.id);
+    const attachments = await OBR.scene.items.getItemAttachments(ids);
+    const allIds = [...new Set([...ids, ...attachments.map((item) => item.id)])];
+    await OBR.scene.items.deleteItems(allIds);
+    await OBR.player.deselect(ids);
+    syncSelectedTokens([]);
+    notify(count === 1 ? "Token excluído." : count + " tokens excluídos.");
+  } catch (error) {
+    console.error("[Sistema 3D] Falha ao excluir tokens:", error);
+    notify("Não foi possível excluir os tokens selecionados.");
+  }
+}
+
+async function beginTokenDrag(record: RenderRecord, event: PointerEvent, selectedIds: string[]): Promise<void> {
   const frame = currentFrame;
   if (!frame || dragState) {
     pendingDragPointerId = null;
     controls.enabled = true;
     return;
   }
-  const itemId = record.mesh.userData.itemId as string;
-  const item = currentItems.find((candidate) => candidate.id === itemId);
-  if (!item || (item.layer !== "CHARACTER" && item.layer !== "MOUNT")) {
+
+  const clickedId = record.mesh.userData.itemId as string;
+  const clickedItem = currentItems.find((item) => item.id === clickedId);
+  if (!clickedItem || clickedItem.locked) {
     pendingDragPointerId = null;
     controls.enabled = true;
+    if (clickedItem?.locked) notify("Este token está bloqueado. Use o botão Desbloquear para movê-lo.");
     return;
   }
-  const permission = item.layer === "CHARACTER" ? "CHARACTER_UPDATE" : "MOUNT_UPDATE";
+
   try {
-    const canMove = await OBR.player.hasPermission(permission);
-    if (!canMove) {
+    const selectedItems = selectedIds
+      .map((id) => currentItems.find((item) => item.id === id))
+      .filter((item): item is Item => Boolean(item) &&
+        (item.layer === "CHARACTER" || item.layer === "MOUNT") &&
+        item.type === "IMAGE" && "image" in item);
+    const movableItems: Item[] = [];
+
+    for (const item of selectedItems) {
+      if (item.locked) continue;
+      const permission = item.layer === "CHARACTER" ? "CHARACTER_UPDATE" : "MOUNT_UPDATE";
+      if (await OBR.player.hasPermission(permission)) movableItems.push(item);
+    }
+
+    if (movableItems.length < selectedItems.length) {
+      notify("Tokens bloqueados ou sem permissão foram ignorados no arraste.");
+    }
+    if (movableItems.length === 0) {
       pendingDragPointerId = null;
       controls.enabled = true;
-      notify("Você não tem permissão para mover esta miniatura no Owlbear.");
+      notify("Nenhum token selecionado pode ser movido.");
       return;
     }
-    const baseState = await OBR.scene.items.getItems([itemId]);
-    if (baseState.length === 0) {
+
+    const baseState = await OBR.scene.items.getItems(movableItems.map((item) => item.id));
+    if (pendingDragPointerId !== event.pointerId || baseState.length === 0) {
       pendingDragPointerId = null;
       controls.enabled = true;
       return;
     }
+    const startPosition = getMapPositionAtPointer(event, frame);
+    if (!startPosition) {
+      pendingDragPointerId = null;
+      controls.enabled = true;
+      return;
+    }
+
     const [dispatch, stop] = await OBR.interaction.startItemInteraction(baseState);
     if (pendingDragPointerId !== event.pointerId) {
       stop();
       return;
     }
-    dragState = { itemId, frame, dispatch, stop, pointerId: event.pointerId };
+    dragState = {
+      itemIds: baseState.map((item) => item.id),
+      frame,
+      initialPositions: baseState.map((item) => ({ id: item.id, x: item.position.x, y: item.position.y })),
+      startPosition,
+      dispatch,
+      stop,
+      pointerId: event.pointerId,
+    };
     controls.enabled = false;
-    await OBR.player.select([itemId], true).catch(() => undefined);
   } catch (error) {
-    console.error("[Sistema 3D] Falha ao iniciar interação do token:", error);
+    console.error("[Sistema 3D] Falha ao iniciar interação dos tokens:", error);
     pendingDragPointerId = null;
     controls.enabled = true;
-    notify("Não foi possível iniciar a movimentação deste token.");
+    notify("Não foi possível iniciar a movimentação dos tokens selecionados.");
   }
 }
 
 function moveDraggedToken(event: PointerEvent): void {
   if (!dragState) return;
-  const rect = renderer.domElement.getBoundingClientRect();
-  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-  raycaster.setFromCamera(pointer, camera);
-  const hit = new THREE.Vector3();
-  if (!raycaster.ray.intersectPlane(groundPlane, hit)) return;
-  const position = worldToMap(hit.x, hit.z, dragState.frame);
   const activeDrag = dragState;
+  const position = getMapPositionAtPointer(event, activeDrag.frame);
+  if (!position) return;
+  const translated = translateTokenPositions(activeDrag.initialPositions, {
+    x: position.x - activeDrag.startPosition.x,
+    y: position.y - activeDrag.startPosition.y,
+  });
+  const positions = new Map(translated.map((item) => [item.id, { x: item.x, y: item.y }]));
   activeDrag.dispatch((draft: any) => {
     for (const item of draft) {
-      if (item.id === activeDrag.itemId) item.position = { x: position.x, y: position.y };
+      const next = positions.get(item.id);
+      if (next) item.position = next;
     }
   });
 }
@@ -570,11 +762,16 @@ function endTokenDrag(): void {
 renderer.domElement.addEventListener("pointerdown", (event: PointerEvent) => {
   if (event.button !== 0 || blockedByFog) return;
   const record = findTokenAtPointer(event);
-  if (!record) return;
-  // Captura antes do OrbitControls (fase bubble) para que um clique em miniatura
-  // nunca seja interpretado como início de rotação da câmera.
+  if (!record) {
+    emptyClickCandidate = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    return;
+  }
+
+  // O clique seleciona o token no próprio Owlbear. O evento é capturado antes
+  // do OrbitControls para não confundir a miniatura com um arraste da câmera.
   event.preventDefault();
   event.stopImmediatePropagation();
+  emptyClickCandidate = null;
   pendingDragPointerId = event.pointerId;
   controls.enabled = false;
   try {
@@ -582,18 +779,62 @@ renderer.domElement.addEventListener("pointerdown", (event: PointerEvent) => {
   } catch (error) {
     console.warn("[Sistema 3D] Não foi possível capturar o ponteiro:", error);
   }
-  void beginTokenDrag(record, event);
+
+  void (async () => {
+    const itemId = record.mesh.userData.itemId as string;
+    try {
+      const current = (await OBR.player.getSelection()) ?? [];
+      const toggle = event.ctrlKey || event.metaKey;
+      const alreadySelected = current.includes(itemId);
+      const next = !event.shiftKey && !toggle && alreadySelected
+        ? current
+        : nextTokenSelection(current, itemId, { additive: event.shiftKey, toggle });
+      if (next.length === 0) await OBR.player.deselect();
+      else await OBR.player.select(next, true);
+      syncSelectedTokens(next);
+
+      if (pendingDragPointerId !== event.pointerId || (toggle && alreadySelected)) return;
+      await beginTokenDrag(record, event, next);
+    } catch (error) {
+      console.error("[Sistema 3D] Falha ao selecionar token:", error);
+      pendingDragPointerId = null;
+      controls.enabled = true;
+      notify("Não foi possível selecionar este token.");
+    }
+  })();
 }, { capture: true });
 renderer.domElement.addEventListener("pointermove", (event: PointerEvent) => {
+  if (emptyClickCandidate?.pointerId === event.pointerId) {
+    const dx = event.clientX - emptyClickCandidate.x;
+    const dy = event.clientY - emptyClickCandidate.y;
+    if (Math.hypot(dx, dy) > 5) emptyClickCandidate = null;
+  }
   if (dragState && dragState.pointerId === event.pointerId) moveDraggedToken(event);
 }, { capture: true });
-renderer.domElement.addEventListener("pointerup", (_event: PointerEvent) => {
+renderer.domElement.addEventListener("pointerup", (event: PointerEvent) => {
+  const wasEmptyClick = emptyClickCandidate?.pointerId === event.pointerId;
+  emptyClickCandidate = null;
+  pendingDragPointerId = null;
+  endTokenDrag();
+  if (wasEmptyClick) {
+    void OBR.player.deselect().then(() => syncSelectedTokens([])).catch((error) => {
+      console.warn("[Sistema 3D] Não foi possível limpar a seleção:", error);
+    });
+  }
+});
+renderer.domElement.addEventListener("pointercancel", (_event: PointerEvent) => {
+  emptyClickCandidate = null;
   pendingDragPointerId = null;
   endTokenDrag();
 });
-renderer.domElement.addEventListener("pointercancel", (_event: PointerEvent) => {
-  pendingDragPointerId = null;
-  endTokenDrag();
+
+rotateLeftButton?.addEventListener("click", () => void rotateSelectedTokens(-15));
+rotateRightButton?.addEventListener("click", () => void rotateSelectedTokens(15));
+lockButton?.addEventListener("click", () => void toggleSelectedTokenLock());
+visibilityButton?.addEventListener("click", () => void toggleSelectedTokenVisibility());
+deleteButton?.addEventListener("click", () => void deleteSelectedTokens());
+deselectButton?.addEventListener("click", () => {
+  void OBR.player.deselect().then(() => syncSelectedTokens([]));
 });
 
 function updateBillboardFacing(): void {
