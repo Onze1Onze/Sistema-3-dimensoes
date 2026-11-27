@@ -1,4 +1,12 @@
-import OBR, { type Image as OBRImage, type Item } from "@owlbear-rodeo/sdk";
+import OBR, {
+  buildCurve,
+  buildLabel,
+  buildLine,
+  buildRuler,
+  buildShape,
+  type Image as OBRImage,
+  type Item,
+} from "@owlbear-rodeo/sdk";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
@@ -18,6 +26,7 @@ import {
   translateTokenPositions,
 } from "./token-interaction";
 import { PointerDragGesture } from "./pointer-gesture";
+import { filterSceneStrokePoints, formatGridDistance, getSceneToolBounds, type ScenePoint } from "./scene-tools";
 import "./styles.css";
 
 const MODAL_ID = "com.onze1onze.sistema-3-dimensoes/viewer";
@@ -42,6 +51,33 @@ const lockButton = document.querySelector<HTMLButtonElement>("#toggle-token-lock
 const visibilityButton = document.querySelector<HTMLButtonElement>("#toggle-token-visibility");
 const deleteButton = document.querySelector<HTMLButtonElement>("#delete-selected-tokens");
 const deselectButton = document.querySelector<HTMLButtonElement>("#deselect-tokens");
+const sceneToolsDock = document.querySelector<HTMLElement>("#scene-tools");
+const toolSettingsPanel = document.querySelector<HTMLElement>("#tool-settings");
+const toolSettingsTitle = document.querySelector<HTMLElement>("#tool-settings-title");
+const toolSettingsDescription = document.querySelector<HTMLElement>("#tool-settings-description");
+const drawingSettings = document.querySelector<HTMLElement>("#drawing-settings");
+const measureSettings = document.querySelector<HTMLElement>("#measure-settings");
+const fireSettings = document.querySelector<HTMLElement>("#fire-settings");
+const textSettings = document.querySelector<HTMLElement>("#text-settings");
+const integrationsPanel = document.querySelector<HTMLElement>("#integrations-panel");
+const measureReadout = document.querySelector<HTMLElement>("#measure-readout");
+const strokeColorInput = document.querySelector<HTMLInputElement>("#tool-stroke-color");
+const fillColorInput = document.querySelector<HTMLInputElement>("#tool-fill-color");
+const strokeWidthInput = document.querySelector<HTMLInputElement>("#tool-stroke-width");
+const strokeWidthValue = document.querySelector<HTMLOutputElement>("#tool-stroke-width-value");
+const fillOpacityInput = document.querySelector<HTMLInputElement>("#tool-fill-opacity");
+const fillOpacityValue = document.querySelector<HTMLOutputElement>("#tool-fill-opacity-value");
+const snapGridInput = document.querySelector<HTMLInputElement>("#tool-snap-grid");
+const measurePersistInput = document.querySelector<HTMLInputElement>("#measure-persist");
+const fireRadiusInput = document.querySelector<HTMLInputElement>("#fire-radius");
+const fireRadiusValue = document.querySelector<HTMLOutputElement>("#fire-radius-value");
+const sceneTextInput = document.querySelector<HTMLTextAreaElement>("#scene-text-value");
+const sceneToolButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-scene-tool]")];
+const toolSettingsToggle = document.querySelector<HTMLButtonElement>("#tool-settings-toggle");
+const toolSettingsClose = document.querySelector<HTMLButtonElement>("#tool-settings-close");
+const integrationsToggle = document.querySelector<HTMLButtonElement>("#integrations-toggle");
+const integrationsClose = document.querySelector<HTMLButtonElement>("#integrations-close");
+const toolUndoButton = document.querySelector<HTMLButtonElement>("#tool-undo");
 
 if (!canvas) throw new Error("Canvas do visualizador não foi encontrado.");
 
@@ -80,7 +116,9 @@ const worldRoot = new THREE.Group();
 const mapRoot = new THREE.Group();
 const propRoot = new THREE.Group();
 const tokenRoot = new THREE.Group();
-worldRoot.add(mapRoot, propRoot, tokenRoot);
+const drawingRoot = new THREE.Group();
+const previewRoot = new THREE.Group();
+worldRoot.add(mapRoot, propRoot, tokenRoot, drawingRoot, previewRoot);
 scene.add(worldRoot);
 
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -116,7 +154,45 @@ interface PendingTokenDrag {
   startPosition: { x: number; y: number };
 }
 
+type SceneTool = "select" | "pan" | "measure" | "marker" | "line" | "rectangle" | "circle" | "fire" | "text";
+
+interface SceneToolGesture {
+  pointerId: number;
+  tool: SceneTool;
+  start: ScenePoint;
+  current: ScenePoint;
+  points: ScenePoint[];
+  requestId: number;
+}
+
+interface DrawingRecord {
+  object: THREE.Object3D;
+  signature: string;
+}
+
+interface FireEffect {
+  group: THREE.Group;
+  flames: THREE.Mesh[];
+  light: THREE.PointLight;
+  phase: number;
+}
+
+const SCENE_TOOL_METADATA = "com.onze1onze.sistema-3-dimensoes/tool";
+const TOOL_COPY: Record<SceneTool, { title: string; description: string }> = {
+  select: { title: "Selecionar", description: "Selecione e mova miniaturas" },
+  pan: { title: "Câmera", description: "Arraste o espaço para navegar" },
+  measure: { title: "Medir distância", description: "Arraste entre dois pontos do tabuleiro" },
+  marker: { title: "Marcador", description: "Desenhe livremente sobre o mapa" },
+  line: { title: "Linha", description: "Arraste para desenhar uma linha" },
+  rectangle: { title: "Retângulo", description: "Arraste para definir uma área retangular" },
+  circle: { title: "Círculo", description: "Arraste para definir uma área circular" },
+  fire: { title: "Fogo 3D", description: "Clique no chão para criar uma chama" },
+  text: { title: "Texto", description: "Clique no chão para inserir uma anotação" },
+};
+
 const records = new Map<string, RenderRecord>();
+const drawingRecords = new Map<string, DrawingRecord>();
+const fireEffects = new Map<string, FireEffect>();
 const textures = new Map<string, THREE.Texture>();
 let currentItems: Item[] = [];
 let currentFrame: SceneFrame | null = null;
@@ -127,6 +203,11 @@ let emptyClickCandidate: { pointerId: number; x: number; y: number } | null = nu
 let selectedTokenIds = new Set<string>();
 let currentPlayerRole: "GM" | "PLAYER" = "PLAYER";
 let blockedByFog = false;
+let activeSceneTool: SceneTool = "select";
+let sceneToolGesture: SceneToolGesture | null = null;
+let lastCreatedSceneItemIds: string[] = [];
+let gridDpi = 100;
+let gridScaleInfo: { multiplier: number; unit: string; digits: number } | null = null;
 let sceneOperationVersion = 0;
 let lastToastTimer = 0;
 let unsubscribeItems: (() => void) | null = null;
