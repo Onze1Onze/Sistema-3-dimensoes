@@ -770,6 +770,16 @@ function clearWorld(): void {
     disposeRecord(record);
   }
   records.clear();
+  for (const record of drawingRecords.values()) {
+    record.object.removeFromParent();
+    disposeObjectTree(record.object);
+  }
+  drawingRecords.clear();
+  fireEffects.clear();
+  for (const child of [...previewRoot.children]) {
+    child.removeFromParent();
+    disposeObjectTree(child);
+  }
 
   // Remove também o piso anterior. Mantê-lo após fechar/trocar de cena deixa
   // geometria antiga visível e pode conservar referências desnecessárias.
