@@ -31,11 +31,13 @@ export function getSceneShapeVertices(
   }
 
   if (tool === "triangle") {
+    // Match the persisted Three.js/Owlbear triangle: apex at local +Y,
+    // which maps to the lower map-space edge after the scene Y/Z inversion.
     return [
-      { x: center.x, y: center.y - height / 2 },
-      { x: center.x + width / 2, y: center.y + height / 2 },
-      { x: center.x - width / 2, y: center.y + height / 2 },
-      { x: center.x, y: center.y - height / 2 },
+      { x: center.x, y: center.y + height / 2 },
+      { x: center.x - width / 2, y: center.y - height / 2 },
+      { x: center.x + width / 2, y: center.y - height / 2 },
+      { x: center.x, y: center.y + height / 2 },
     ];
   }
 
