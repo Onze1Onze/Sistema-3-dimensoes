@@ -5,7 +5,7 @@
 - [x] Dock lateral de ferramentas no modal 3D
 - [x] Seleção e navegação da câmera separadas por modo
 - [x] Medição temporária e régua persistente usando a grade do Owlbear
-- [x] Marcador livre, linha, retângulo e círculo com configurações de estilo
+- [x] Marcador livre, pincel preenchido, linha, retângulo, círculo, triângulo e hexágono com configurações de estilo
 - [x] Inserção de anotações de texto na cena
 - [x] Criação de área de fogo compartilhada com chamas animadas no visualizador 3D
 - [x] Renderização de itens compatíveis das camadas DRAWING, RULER e TEXT
