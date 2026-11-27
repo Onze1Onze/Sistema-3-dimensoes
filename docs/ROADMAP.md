@@ -9,6 +9,7 @@
 - [x] Tornar a velocidade de câmera independente da taxa de quadros e restaurar o atalho R.
 - [x] Evitar consultas de Fog/role em toda atualização de movimento de token.
 - [x] Respeitar CHARACTER_OWNER_ONLY e permissões de anexos durante a exclusão.
+- [x] Validar permissões e bloqueios dos anexos antes de arrastar grupos de tokens.
 - [x] Cancelar criações/edições assíncronas quando a cena mudar.
 - [x] Encerrar animação, listeners, geometrias, materiais e texturas ao fechar o modal.
 - [x] Ajustar anotações para quebrar linhas sem truncar o texto após 40 caracteres.
