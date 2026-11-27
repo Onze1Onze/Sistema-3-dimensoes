@@ -13,6 +13,7 @@ test("tokens usam material não iluminado e mantêm transparência da imagem", (
   assert.equal(material.alphaTest, 0.08);
   assert.equal(material.depthWrite, false);
   assert.equal(material.toneMapped, false);
+  assert.equal(material.fog, false);
   assert.equal(material.color.getHex(), 0xffffff);
 
   material.dispose();
