@@ -610,7 +610,21 @@ if (!OBR.isAvailable) {
   showMessage("Abra pelo Owlbear Rodeo", "Este visualizador precisa ser aberto pelo botão da extensão dentro de uma sala do Owlbear Rodeo.");
 } else {
   OBR.onReady(() => {
-    void loadScene();
+    // Instale os listeners antes da consulta inicial. Assim, uma cena que
+    // terminar de carregar durante loadScene() não fica sem atualização.
+    unsubscribeReady = OBR.scene.onReadyChange((ready: boolean) => {
+      if (ready) void loadScene();
+      else {
+        endTokenDrag();
+        clearWorld();
+        currentItems = [];
+        currentFrame = null;
+        blockedByFog = false;
+        updateCounts([]);
+        showMessage("Cena fechada", "Abra uma cena no Owlbear Rodeo para continuar.");
+        setStatus("Aguardando uma cena do Owlbear");
+      }
+    });
     unsubscribeItems = OBR.scene.items.onChange((items: Item[]) => {
       void (async () => {
         const safe = await checkFogSafety(items);
@@ -618,14 +632,7 @@ if (!OBR.isAvailable) {
       })();
     });
     unsubscribeFog = OBR.scene.fog.onChange(() => void loadScene());
-    unsubscribeReady = OBR.scene.onReadyChange((ready: boolean) => {
-      if (ready) void loadScene();
-      else {
-        endTokenDrag();
-        clearWorld();
-        showMessage("Cena fechada", "Abra uma cena no Owlbear Rodeo para continuar.");
-      }
-    });
+    void loadScene();
   });
 }
 
