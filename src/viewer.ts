@@ -678,7 +678,16 @@ async function beginTokenDrag(record: RenderRecord, event: PointerEvent, selecte
       return;
     }
 
-    const baseState = await OBR.scene.items.getItems(movableItems.map((item) => item.id));
+    // O caminho rápido de interação do SDK não recalcula a hierarquia de
+    // anexos. Incluímos os anexos/subanexos e deslocamos tudo pelo mesmo delta.
+    const selectedIds = movableItems.map((item) => item.id);
+    const [selectedState, attachmentState] = await Promise.all([
+      OBR.scene.items.getItems(selectedIds),
+      OBR.scene.items.getItemAttachments(selectedIds),
+    ]);
+    const stateById = new Map<string, Item>();
+    for (const item of [...attachmentState, ...selectedState]) stateById.set(item.id, item);
+    const baseState = [...stateById.values()];
     if (pendingDragPointerId !== event.pointerId || baseState.length === 0) {
       pendingDragPointerId = null;
       controls.enabled = true;
