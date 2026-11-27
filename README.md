@@ -2,9 +2,9 @@
 
 Extensão do Owlbear Rodeo que abre uma visualização tridimensional da cena atual usando Three.js. O Owlbear continua sendo a fonte de verdade para mapas, tokens, desenhos, réguas, textos e permissões.
 
-## Estado da versão 1.3.0
+## Estado da versão 1.3.1
 
-A versão 1.3.0 usa os limites transformados oficiais do Owlbear para posicionar o referencial 3D, em vez de estimar a caixa do mapa a partir dos pixels. Também impede que a névoa visual do Three.js escureça as miniaturas e ajusta o alcance da câmera para cenas grandes.
+A versão 1.3.1 usa os limites transformados oficiais do Owlbear para posicionar o referencial 3D, em vez de estimar a caixa do mapa a partir dos pixels. Também impede que a névoa visual do Three.js escureça as miniaturas e ajusta o alcance da câmera para cenas grandes.
 
 As ferramentas da versão 1.1.1 permanecem disponíveis. Ações de desenho e medição criam itens nativos na cena do Owlbear, mantendo a compatibilidade com o modo 2D.
 
@@ -63,7 +63,7 @@ Habilite a extensão em uma sala e clique em **Sistema 3D**.
 
 ## Compilar e testar
 
-A versão publicada é identificada como **1.3.0** no package.json, no manifest.json e na interface inicial. O CI verifica que esses identificadores permanecem consistentes.
+A versão publicada é identificada como **1.3.1** no package.json, no manifest.json e na interface inicial. O CI verifica que esses identificadores permanecem consistentes.
 
 ```bash
 npm test
@@ -79,7 +79,7 @@ Use **Escala mapa** na seção **Cena** do painel lateral. Arraste o controle en
 
 ## Interação com tokens no modo 3D
 
-A seleção feita no modo 3D é sincronizada com a seleção padrão do Owlbear. Clique em um token para selecioná-lo; use **Shift + clique** para adicionar tokens à seleção ou **Ctrl/Cmd + clique** para alternar um token. Toque/clique diretamente em uma miniatura e arraste mantendo o dedo/botão pressionado para movê-la em tempo real. O visualizador captura o ponteiro durante o gesto para continuar recebendo o movimento mesmo quando ele sai de cima do token. Se houver vários tokens selecionados, arrastar um deles move o grupo, preservando a distância entre eles e incluindo os anexos da hierarquia.
+A seleção feita no modo 3D é sincronizada com a seleção padrão do Owlbear. Clique em um token para selecioná-lo; use **Shift + clique** para adicionar tokens à seleção ou **Ctrl/Cmd + clique** para alternar um token. Toque/clique diretamente em uma miniatura e arraste mantendo o dedo/botão pressionado para movê-la em tempo real. O visualizador usa uma área invisível de seleção orientada para a câmera, independente da miniatura vertical, e um plano de arraste calculado na profundidade do token. Assim, a seleção não depende de acertar a geometria visual nem de o raio alcançar o chão; o deslocamento é convertido para coordenadas do tabuleiro. O visualizador captura o ponteiro durante o gesto para continuar recebendo o movimento mesmo quando ele sai de cima do token. Se houver vários tokens selecionados, arrastar um deles move o grupo, preservando a distância entre eles e incluindo os anexos da hierarquia. Bloqueios, permissões e anexos incompatíveis agora informam o motivo específico. Pressione **V** ou **Esc** para voltar à ferramenta Selecionar.
 
 Quando há tokens selecionados, aparece uma barra contextual com ações de rotação, escala, bloqueio, visibilidade (somente mestre) e exclusão. As ações de edição e exclusão verificam as permissões por camada do Owlbear. Tokens bloqueados precisam ser desbloqueados antes de serem movidos, girados ou redimensionados. Clicar em uma área vazia limpa a seleção.
 
@@ -93,6 +93,7 @@ O modo 3D fornece controles contextuais próprios e implementa equivalentes 3D d
 - Scroll: aproximar/afastar.
 - WASD ou setas: deslocar a câmera.
 - Arrastar uma miniatura: mover o token, caso a permissão correspondente exista no Owlbear.
+- V ou Esc: retornar à ferramenta Selecionar.
 - Botões no topo: vista isométrica, vista superior, centralizar e fechar.
 
 ## Decisões e limitações técnicas

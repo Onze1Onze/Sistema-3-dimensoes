@@ -566,7 +566,10 @@ kbd {
 .toast.visible { opacity: 1; visibility: visible; }
 
 #scene-canvas.tool-active { cursor: crosshair; }
-#scene-canvas.tool-pan { cursor: grab; }
+#scene-canvas.tool-pan,
+#scene-canvas.tool-select { cursor: grab; }
+#scene-canvas.tool-pan:active,
+#scene-canvas.tool-select:active { cursor: grabbing; }
 
 @media (max-width: 900px) {
   .viewer-topbar { grid-template-columns: minmax(175px, 1fr) auto; gap: 10px; }

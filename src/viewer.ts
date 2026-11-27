@@ -31,6 +31,8 @@ import {
   nextTokenSelection,
   normalizeRotation,
   translateTokenPositions,
+  intersectRayWithPlane,
+  projectViewDeltaToGround,
 } from "./token-interaction";
 import { PointerDragGesture } from "./pointer-gesture";
 import { filterSceneStrokePoints, formatGridDistance, getSceneShapeVertices, getSceneToolBounds, type ScenePoint, type SceneShapeTool } from "./scene-tools";
@@ -133,7 +135,6 @@ const previewRoot = new THREE.Group();
 worldRoot.add(mapRoot, propRoot, tokenRoot, drawingRoot, previewRoot);
 scene.add(worldRoot);
 
-const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const textureLoader = new THREE.TextureLoader();
@@ -148,6 +149,17 @@ interface RenderRecord {
   material: THREE.MeshStandardMaterial | THREE.MeshBasicMaterial;
   itemRotation: number;
   selectionRing?: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  selectionProxy?: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+}
+
+interface TokenDragProjection {
+  anchorWorld: THREE.Vector3;
+  anchorGround: THREE.Vector3;
+  planeNormal: THREE.Vector3;
+  cameraRight: THREE.Vector3;
+  cameraUp: THREE.Vector3;
+  groundRight: THREE.Vector3;
+  groundUp: THREE.Vector3;
 }
 
 interface DragState {
@@ -155,6 +167,7 @@ interface DragState {
   frame: SceneFrame;
   initialPositions: { id: string; x: number; y: number }[];
   startPosition: { x: number; y: number };
+  dragProjection: TokenDragProjection;
   dispatch: (recipe: (draft: any) => void) => any;
   stop: () => void;
   pointerId: number;
@@ -165,6 +178,7 @@ interface PendingTokenDrag {
   gesture: PointerDragGesture;
   selectedIds: string[];
   startPosition: { x: number; y: number };
+  dragProjection: TokenDragProjection;
 }
 
 type SceneTool = "select" | "pan" | "measure" | "marker" | "brush" | "line" | "rectangle" | "circle" | "triangle" | "hexagon" | "fire" | "text";
@@ -291,6 +305,8 @@ function disposeRecord(record: RenderRecord): void {
   record.material.dispose();
   record.selectionRing?.geometry.dispose();
   record.selectionRing?.material.dispose();
+  record.selectionProxy?.geometry.dispose();
+  record.selectionProxy?.material.dispose();
 }
 
 function removeMissingRecords(allowedIds: Set<string>): void {
@@ -372,7 +388,27 @@ function createRecord(item: OBRImage, kind: "map" | "token" | "prop"): RenderRec
   const object = new THREE.Group();
   object.add(mesh);
   let selectionRing: RenderRecord["selectionRing"];
+  let selectionProxy: RenderRecord["selectionProxy"];
   if (kind === "token") {
+    // Invisible camera-facing hit target, independent of the visual billboard.
+    const proxyMaterial = new THREE.MeshBasicMaterial({
+      color: "#ffffff",
+      transparent: true,
+      opacity: 0,
+      colorWrite: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+      fog: false,
+    });
+    selectionProxy = new THREE.Mesh(
+      new THREE.PlaneGeometry(worldSize.width * 1.12, worldSize.height * 1.12),
+      proxyMaterial,
+    );
+    selectionProxy.userData.itemId = item.id;
+    selectionProxy.position.y = worldSize.height / 2;
+    object.add(selectionProxy);
+
     const ringGeometry = new THREE.RingGeometry(0.82, 1, 40);
     const ringMaterial = new THREE.MeshBasicMaterial({
       color: "#9bc3ff",
@@ -401,6 +437,7 @@ function createRecord(item: OBRImage, kind: "map" | "token" | "prop"): RenderRec
     material,
     itemRotation: item.rotation,
     selectionRing,
+    selectionProxy,
   };
   // Registre antes de consultar o cache: em cache hit o callback é síncrono.
   records.set(item.id, record);
@@ -439,9 +476,14 @@ function updateRecord(item: OBRImage, record: RenderRecord, kind: "map" | "token
     const ringScale = Math.max(size.width, size.height) * 0.62;
     record.selectionRing.scale.set(ringScale, ringScale, 1);
   }
+  if (record.selectionProxy) record.selectionProxy.position.y = size.height / 2;
   if (Math.abs(record.width - size.width) > 1e-6 || Math.abs(record.height - size.height) > 1e-6) {
     record.mesh.geometry.dispose();
     record.mesh.geometry = new THREE.PlaneGeometry(size.width, size.height);
+    if (record.selectionProxy) {
+      record.selectionProxy.geometry.dispose();
+      record.selectionProxy.geometry = new THREE.PlaneGeometry(size.width * 1.12, size.height * 1.12);
+    }
     record.width = size.width;
     record.height = size.height;
   }
@@ -1145,13 +1187,16 @@ function findTokenAtPointer(event: PointerEvent): RenderRecord | null {
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   camera.updateMatrixWorld(true);
+  updateBillboardFacing();
   worldRoot.updateMatrixWorld(true);
   raycaster.setFromCamera(pointer, camera);
-  const tokenMeshes: THREE.Object3D[] = [];
+  const selectionTargets: THREE.Object3D[] = [];
   for (const record of records.values()) {
-    if (record.object.parent === tokenRoot) tokenMeshes.push(record.mesh);
+    if (record.object.parent === tokenRoot && record.selectionProxy) {
+      selectionTargets.push(record.selectionProxy);
+    }
   }
-  const hits = raycaster.intersectObjects(tokenMeshes, false);
+  const hits = raycaster.intersectObjects(selectionTargets, false);
   if (hits.length === 0) return null;
   const id = hits[0].object.userData.itemId as string | undefined;
   return id ? records.get(id) ?? null : null;
@@ -1195,11 +1240,91 @@ function getMapPositionAtPointer(event: PointerEvent, frame: SceneFrame): { x: n
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const hit = new THREE.Vector3();
-  if (!raycaster.ray.intersectPlane(groundPlane, hit)) return null;
-  if (!Number.isFinite(hit.x) || !Number.isFinite(hit.z)) return null;
+  const hit = intersectRayWithPlane(
+    raycaster.ray.origin,
+    raycaster.ray.direction,
+    { x: 0, y: 0, z: 0 },
+    { x: 0, y: 1, z: 0 },
+  );
+  if (!hit || !Number.isFinite(hit.x) || !Number.isFinite(hit.z)) return null;
   const position = worldToMap(hit.x, hit.z, frame);
   return Number.isFinite(position.x) && Number.isFinite(position.y) ? position : null;
+}
+
+function getMapPositionAtDragPointer(
+  event: PointerEvent,
+  frame: SceneFrame,
+  projection: TokenDragProjection,
+): { x: number; y: number } | null {
+  const rect = renderer.domElement.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hit = intersectRayWithPlane(
+    raycaster.ray.origin,
+    raycaster.ray.direction,
+    projection.anchorWorld,
+    projection.planeNormal,
+  );
+  if (!hit) return null;
+  const viewDelta = {
+    x: hit.x - projection.anchorWorld.x,
+    y: hit.y - projection.anchorWorld.y,
+    z: hit.z - projection.anchorWorld.z,
+  };
+  const groundDelta = projectViewDeltaToGround(
+    viewDelta,
+    projection.cameraRight,
+    projection.cameraUp,
+    projection.groundRight,
+    projection.groundUp,
+  );
+  const position = worldToMap(
+    projection.anchorGround.x + groundDelta.x,
+    projection.anchorGround.z + groundDelta.z,
+    frame,
+  );
+  return Number.isFinite(position.x) && Number.isFinite(position.y) ? position : null;
+}
+
+function getTokenDragProjectionAtPointer(
+  event: PointerEvent,
+  frame: SceneFrame,
+  record: RenderRecord,
+): { projection: TokenDragProjection; position: { x: number; y: number } } | null {
+  camera.updateMatrixWorld(true);
+  const cameraQuaternion = new THREE.Quaternion();
+  camera.getWorldQuaternion(cameraQuaternion);
+  const cameraDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(cameraQuaternion).normalize();
+  const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(cameraQuaternion).normalize();
+  const cameraUp = new THREE.Vector3(0, 1, 0).applyQuaternion(cameraQuaternion).normalize();
+
+  const groundRight = new THREE.Vector3(cameraRight.x, 0, cameraRight.z);
+  if (groundRight.lengthSq() < 1e-8) groundRight.set(1, 0, 0);
+  groundRight.normalize();
+
+  const groundUp = new THREE.Vector3(cameraUp.x, 0, cameraUp.z);
+  if (groundUp.lengthSq() < 1e-8) {
+    groundUp.set(-cameraDirection.x, 0, -cameraDirection.z);
+    if (groundUp.lengthSq() < 1e-8) groundUp.set(-groundRight.z, 0, groundRight.x);
+  }
+  groundUp.normalize();
+
+  const anchorWorld = record.object.getWorldPosition(new THREE.Vector3());
+  anchorWorld.y += record.height / 2;
+  const anchorGround = new THREE.Vector3(anchorWorld.x, 0, anchorWorld.z);
+  const projection: TokenDragProjection = {
+    anchorWorld,
+    anchorGround,
+    planeNormal: cameraDirection,
+    cameraRight,
+    cameraUp,
+    groundRight,
+    groundUp,
+  };
+  const position = getMapPositionAtDragPointer(event, frame, projection);
+  return position ? { projection, position } : null;
 }
 
 function clearToolPreview(): void {
@@ -1236,6 +1361,7 @@ function setActiveSceneTool(tool: SceneTool): void {
   });
   canvas?.classList.toggle("tool-active", !["select", "pan"].includes(tool));
   canvas?.classList.toggle("tool-pan", tool === "pan");
+  canvas?.classList.toggle("tool-select", tool === "select");
   sceneToolsDock?.classList.toggle("tool-drawing-mode", ["measure", "marker", "brush", "line", "rectangle", "circle", "triangle", "hexagon", "fire", "text"].includes(tool));
   updateToolSettingsPanel();
   if (["select", "pan"].includes(tool)) {
@@ -1825,31 +1951,54 @@ async function getPermittedTokenItems(items: Item[], operation: "UPDATE" | "DELE
   });
 }
 
-async function getPermittedAttachedItems(items: Item[]): Promise<Item[]> {
-  if (items.length === 0) return [];
-  const permissions = new Map<Item, string>();
-  for (const item of items) {
-    const permission = UPDATE_PERMISSION_BY_LAYER[item.layer];
-    if (!permission) return [];
-    permissions.set(item, permission);
+function getMovementItemLabel(item: Item): string {
+  return item.name?.trim() || item.id;
+}
+
+const UPDATE_PERMISSION_LABELS: Record<string, string> = {
+  CHARACTER_UPDATE: "editar personagens",
+  MOUNT_UPDATE: "editar montarias",
+  ATTACHMENT_UPDATE: "editar anexos",
+  PROP_UPDATE: "editar objetos",
+  DRAWING_UPDATE: "editar desenhos",
+  NOTE_UPDATE: "editar notas",
+  TEXT_UPDATE: "editar textos",
+  RULER_UPDATE: "editar réguas",
+  MAP_UPDATE: "editar mapas",
+};
+
+async function getItemUpdateBlockReason(item: Item, permission: string): Promise<string | null> {
+  const label = `“${getMovementItemLabel(item)}”`;
+  if (item.locked) return `${label} está bloqueado.`;
+  if (!permission) return `${label} pertence à camada ${item.layer}, que não possui uma permissão de atualização reconhecida.`;
+
+  const allowed = await OBR.player.hasPermission(
+    permission as Parameters<typeof OBR.player.hasPermission>[0],
+  );
+  if (!allowed) {
+    const permissionLabel = UPDATE_PERMISSION_LABELS[permission] ?? `atualizar itens (${permission})`;
+    return `Você não tem permissão para ${permissionLabel} em ${label}.`;
   }
-  const requiredPermissions = [...new Set(permissions.values())];
-  const [permissionResults, ownerOnly, role] = await Promise.all([
-    Promise.all(requiredPermissions.map(async (permission) =>
-      [permission, await OBR.player.hasPermission(permission as "ATTACHMENT_UPDATE")] as const)),
-    items.some((item) => item.layer === "CHARACTER")
-      ? OBR.player.hasPermission("CHARACTER_OWNER_ONLY")
-      : Promise.resolve(false),
-    OBR.player.getRole(),
-  ]);
-  const allowedPermissions = new Set(permissionResults.filter(([, allowed]) => allowed).map(([permission]) => permission));
-  return items.filter((item) => {
-    if (!allowedPermissions.has(permissions.get(item)!)) return false;
-    if (item.locked) return false;
-    if (item.layer === "CHARACTER" &&
-        !canModifyCharacter(role, ownerOnly, item.createdUserId, OBR.player.id)) return false;
-    return true;
-  });
+
+  if (item.layer === "CHARACTER") {
+    const ownerOnly = await OBR.player.hasPermission("CHARACTER_OWNER_ONLY");
+    if (ownerOnly) {
+      const role = await OBR.player.getRole();
+      if (!canModifyCharacter(role, ownerOnly, item.createdUserId, OBR.player.id)) {
+        return `${label} pertence a outro jogador e a regra Owner Only está ativada.`;
+      }
+    }
+  }
+  return null;
+}
+
+async function getAttachedMovementIssues(items: Item[]): Promise<string[]> {
+  const checks = await Promise.all(items.map(async (item) => {
+    const permission = UPDATE_PERMISSION_BY_LAYER[item.layer] ?? "";
+    const reason = await getItemUpdateBlockReason(item, permission);
+    return reason ? `${getMovementItemLabel(item)}: ${reason}` : null;
+  }));
+  return checks.filter((reason): reason is string => reason !== null);
 }
 
 async function canDeleteAttachedItems(items: Item[]): Promise<boolean> {
@@ -2031,7 +2180,13 @@ function finishPendingPointerGesture(gesture: PointerDragGesture): void {
 function requestPendingTokenDrag(gesture: PointerDragGesture): void {
   const pending = pendingTokenDrag;
   if (!pending || pending.gesture !== gesture || !gesture.requestStart()) return;
-  void beginTokenDrag(pending.record, pending.gesture, pending.selectedIds, pending.startPosition);
+  void beginTokenDrag(
+    pending.record,
+    pending.gesture,
+    pending.selectedIds,
+    pending.startPosition,
+    pending.dragProjection,
+  );
 }
 
 async function beginTokenDrag(
@@ -2039,6 +2194,7 @@ async function beginTokenDrag(
   gesture: PointerDragGesture,
   selectedIds: string[],
   startPosition: { x: number; y: number },
+  dragProjection: TokenDragProjection,
 ): Promise<void> {
   const frame = currentFrame;
   if (!frame || dragState || !gesture.isActive || activePointerGesture !== gesture) {
@@ -2046,35 +2202,48 @@ async function beginTokenDrag(
     return;
   }
 
-  const clickedId = record.mesh.userData.itemId as string;
+  const clickedId = record.selectionProxy?.userData.itemId as string | undefined;
   const clickedItem = currentItems.find((item) => item.id === clickedId);
-  if (!clickedItem || clickedItem.locked) {
-    if (clickedItem?.locked) notify("Este token está bloqueado. Desbloqueie-o para movê-lo.");
+  if (!clickedItem) {
+    notify("O token clicado não está mais presente na cena. Tente novamente.");
     finishPendingPointerGesture(gesture);
     return;
   }
 
+  let stage = "validar as permissões dos tokens";
   try {
     const selectedItems = selectedIds
       .map((id) => currentItems.find((item) => item.id === id))
       .filter((item): item is Item => item !== undefined &&
         (item.layer === "CHARACTER" || item.layer === "MOUNT") &&
         item.type === "IMAGE" && "image" in item);
-    const unlockedItems = selectedItems.filter((item) => !item.locked);
-    const movableItems = await getPermittedTokenItems(unlockedItems, "UPDATE");
+    const tokenChecks = await Promise.all(selectedItems.map(async (item) => ({
+      item,
+      reason: await getItemUpdateBlockReason(item, getTokenPermission(item, "UPDATE")),
+    })));
 
     if (!gesture.isActive || activePointerGesture !== gesture) {
       finishPendingPointerGesture(gesture);
       return;
     }
-    if (movableItems.length < selectedItems.length) {
-      notify("Tokens bloqueados ou sem permissão foram ignorados no arraste.");
-    }
-    if (movableItems.length === 0) {
-      notify("Nenhum token selecionado pode ser movido.");
+    const clickedTokenCheck = tokenChecks.find((check) => check.item.id === clickedItem.id);
+    if (clickedTokenCheck?.reason) {
+      notify(clickedTokenCheck.reason);
       finishPendingPointerGesture(gesture);
       return;
     }
+    const movableItems = tokenChecks.filter((check) => !check.reason).map((check) => check.item);
+    const blockedTokenIssues = tokenChecks
+      .filter((check): check is { item: Item; reason: string } => check.reason !== null)
+      .map((check) => `${getMovementItemLabel(check.item)}: ${check.reason}`);
+    if (blockedTokenIssues.length > 0) notify(`Tokens ignorados no arraste: ${blockedTokenIssues.join(" ")}`);
+    if (movableItems.length === 0) {
+      if (blockedTokenIssues.length === 0) notify("Nenhum token selecionado pode ser movido.");
+      finishPendingPointerGesture(gesture);
+      return;
+    }
+
+    stage = "consultar a hierarquia de anexos";
 
     // A interação só é solicitada depois de movimento real. Se o dedo já foi
     // solto enquanto o SDK inicializava, o último ponto ainda será aplicado.
@@ -2105,17 +2274,19 @@ async function beginTokenDrag(
 
     const rootIds = new Set(movableIds);
     const attachedItems = baseState.filter((item) => !rootIds.has(item.id));
-    const permittedAttachments = await getPermittedAttachedItems(attachedItems);
+    stage = "validar as permissões dos anexos";
+    const attachmentIssues = await getAttachedMovementIssues(attachedItems);
     if (!gesture.isActive || activePointerGesture !== gesture) {
       finishPendingPointerGesture(gesture);
       return;
     }
-    if (permittedAttachments.length !== attachedItems.length) {
-      notify("Não foi possível mover o grupo: um ou mais anexos estão bloqueados ou sem permissão de atualização.");
+    if (attachmentIssues.length > 0) {
+      notify(`Não foi possível mover o grupo: ${attachmentIssues.join(" ")}`);
       finishPendingPointerGesture(gesture);
       return;
     }
 
+    stage = "iniciar a interação com o Owlbear";
     const [dispatch, stop] = await OBR.interaction.startItemInteraction(baseState);
     if (!gesture.isActive || activePointerGesture !== gesture || (gesture.released && !gesture.shouldMove)) {
       stop();
@@ -2128,6 +2299,7 @@ async function beginTokenDrag(
       frame,
       initialPositions: baseState.map((item) => ({ id: item.id, x: item.position.x, y: item.position.y })),
       startPosition,
+      dragProjection,
       dispatch,
       stop,
       pointerId: gesture.pointerId,
@@ -2152,8 +2324,9 @@ async function beginTokenDrag(
       finishPendingPointerGesture(gesture);
       return;
     }
-    console.error("[Sistema 3D] Falha ao iniciar interação dos tokens:", error);
-    notify("Não foi possível iniciar a movimentação. Tente arrastar novamente.");
+    console.error(`[Sistema 3D] Falha ao ${stage}:`, error);
+    const detail = error instanceof Error && error.message ? ` ${error.message.slice(0, 160)}` : "";
+    notify(`Falha ao ${stage}.${detail}`);
     finishPendingPointerGesture(gesture);
   }
 }
@@ -2162,7 +2335,7 @@ function moveDraggedTokenAt(clientX: number, clientY: number): void {
   if (!dragState) return;
   const activeDrag = dragState;
   const syntheticPointer = { clientX, clientY } as PointerEvent;
-  const position = getMapPositionAtPointer(syntheticPointer, activeDrag.frame);
+  const position = getMapPositionAtDragPointer(syntheticPointer, activeDrag.frame, activeDrag.dragProjection);
   if (!position) return;
   const translated = translateTokenPositions(activeDrag.initialPositions, {
     x: position.x - activeDrag.startPosition.x,
@@ -2220,9 +2393,9 @@ renderer.domElement.addEventListener("pointerdown", (event: PointerEvent) => {
   emptyClickCandidate = null;
 
   const frame = currentFrame;
-  const startPosition = frame ? getMapPositionAtPointer(event, frame) : null;
-  if (!frame || !startPosition) {
-    notify("Não foi possível calcular a posição do toque no tabuleiro.");
+  const dragStart = frame ? getTokenDragProjectionAtPointer(event, frame, record) : null;
+  if (!frame || !dragStart) {
+    notify("Não foi possível iniciar a seleção espacial do token. Reposicione a câmera e tente novamente.");
     return;
   }
 
@@ -2249,7 +2422,13 @@ renderer.domElement.addEventListener("pointerdown", (event: PointerEvent) => {
     clientY: event.clientY,
   });
   activePointerGesture = gesture;
-  pendingTokenDrag = { record, gesture, selectedIds: next, startPosition };
+  pendingTokenDrag = {
+    record,
+    gesture,
+    selectedIds: next,
+    startPosition: dragStart.position,
+    dragProjection: dragStart.projection,
+  };
   controls.enabled = false;
 
   // Capturar o ponteiro faz o canvas continuar recebendo os movimentos mesmo
@@ -2415,11 +2594,20 @@ deselectButton?.addEventListener("click", () => {
 });
 
 function updateBillboardFacing(): void {
+  camera.updateMatrixWorld(true);
+  const cameraWorldQuaternion = new THREE.Quaternion();
+  camera.getWorldQuaternion(cameraWorldQuaternion);
   for (const record of records.values()) {
     if (record.object.parent !== tokenRoot) continue;
     const dx = camera.position.x - record.object.position.x;
     const dz = camera.position.z - record.object.position.z;
     record.object.rotation.y = Math.atan2(dx, dz) + THREE.MathUtils.degToRad(record.itemRotation);
+    if (record.selectionProxy) {
+      const objectWorldQuaternion = new THREE.Quaternion();
+      record.object.getWorldQuaternion(objectWorldQuaternion);
+      objectWorldQuaternion.invert();
+      record.selectionProxy.quaternion.copy(objectWorldQuaternion.multiply(cameraWorldQuaternion));
+    }
   }
 }
 
@@ -2434,8 +2622,19 @@ window.addEventListener("keydown", (event) => {
     keysDown.add(event.key.toLowerCase());
     if (event.key.toLowerCase().startsWith("arrow")) event.preventDefault();
   }
+  if (event.key.toLowerCase() === "v") {
+    event.preventDefault();
+    setActiveSceneTool("select");
+    notify("Ferramenta Selecionar ativada (V).");
+    return;
+  }
   if (event.key === "Escape") {
     event.preventDefault();
+    if (activeSceneTool !== "select") {
+      setActiveSceneTool("select");
+      notify("Ferramenta Selecionar ativada.");
+      return;
+    }
     if (sceneToolGesture) {
       sceneToolGesture = null;
       clearToolPreview();
@@ -2474,7 +2673,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 function moveCameraWithKeys(delta: number): void {
-  if (keysDown.size === 0 || dragState || sceneToolGesture) return;
+  if (keysDown.size === 0 || dragState || activePointerGesture || sceneToolGesture) return;
   const forward = new THREE.Vector3();
   camera.getWorldDirection(forward);
   forward.y = 0;
