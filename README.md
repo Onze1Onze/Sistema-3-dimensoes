@@ -1,10 +1,10 @@
 # Sistema 3 Dimensões — extensão para Owlbear Rodeo
 
-Protótipo de extensão do Owlbear Rodeo que abre uma visualização tridimensional da cena atual usando Three.js. O Owlbear continua sendo a fonte de verdade para mapas, tokens e permissões.
+Extensão do Owlbear Rodeo que abre uma visualização tridimensional da cena atual usando Three.js. O Owlbear continua sendo a fonte de verdade para mapas, tokens, desenhos, réguas, textos e permissões.
 
-## Estado da versão 1.0.1
+## Estado da versão 1.1.0
 
-Esta atualização estabiliza a interação direta com miniaturas no ambiente 3D. O arraste só inicializa a interação do Owlbear depois que o dedo ou ponteiro realmente se desloca; as permissões são consultadas em paralelo e os eventos de movimento, soltura e cancelamento são acompanhados na janela do visualizador. Isso reduz a latência percebida e evita que um simples toque dispare uma interação de movimento.
+A versão 1.1.0 adiciona um conjunto de ferramentas integrado ao visualizador 3D. As ações de desenho e medição criam itens nativos na cena do Owlbear, mantendo a compatibilidade com o modo 2D. O painel contextual oferece cores, espessura, opacidade, ajuste à grade, régua persistente e raio de fogo.
 
 Leia também a [especificação técnica completa](docs/ESPECIFICACAO_TECNICA.md) e o [roteiro de desenvolvimento](docs/ROADMAP.md).
 
@@ -22,6 +22,13 @@ Implementado nesta primeira entrega:
 - Arraste direto com toque, caneta ou mouse sobre a miniatura no canvas 3D, com captura do ponteiro e atualização contínua da posição no Owlbear.
 - Arraste conjunto de tokens selecionados, mantendo posições relativas e deslocando também anexos/subanexos da hierarquia.
 - Barra contextual 3D para girar, redimensionar, bloquear/desbloquear, ocultar/mostrar (somente mestre) e excluir tokens selecionados.
+- Dock de ferramentas no espaço 3D com seleção, navegação da câmera, medição, marcador livre, linha, retângulo, círculo, fogo visual 3D e anotações de texto.
+- Medição pelo método oficial `OBR.scene.grid.getDistance`, respeitando escala e fórmula de distância configuradas na cena do Owlbear.
+- Réguas persistentes como itens nativos da camada `RULER`; medições temporárias aparecem como sobreposição no espaço 3D.
+- Marcadores, linhas, formas, rótulos e réguas gravados nas camadas nativas do Owlbear e representados no espaço 3D.
+- Fogo 3D com área circular e rótulo compartilhados pela cena, além de chamas animadas no renderizador 3D. Não cria itens `LIGHT` nem altera a visão/Fog of War do Owlbear.
+- Painel de configurações por ferramenta, com cor do traço/preenchimento, espessura, opacidade, ajuste à grade, escala de fogo e desfazer da última criação.
+- Renderização 3D de itens compatíveis das camadas `DRAWING`, `RULER` e `TEXT`.
 - Verificação das permissões de atualização/exclusão antes de alterar itens da cena.
 - Atualização visual a partir de `OBR.scene.items.onChange`.
 - Bloqueio preventivo da visualização em cenas com Fog of War preenchido ou itens visíveis nas camada `FOG` ou itens do tipo `WALL` e `LIGHT`.
@@ -50,7 +57,7 @@ Habilite a extensão em uma sala e clique em **Sistema 3D**.
 
 ## Compilar e testar
 
-A versão publicada é identificada como **1.0.1** no package.json, no manifest.json e na interface inicial. O CI verifica que esses identificadores permanecem consistentes.
+A versão publicada é identificada como **1.1.0** no package.json, no manifest.json e na interface inicial. O CI verifica que esses identificadores permanecem consistentes.
 
 ```bash
 npm test
@@ -66,7 +73,7 @@ A seleção feita no modo 3D é sincronizada com a seleção padrão do Owlbear.
 
 Quando há tokens selecionados, aparece uma barra contextual com ações de rotação, escala, bloqueio, visibilidade (somente mestre) e exclusão. As ações de edição e exclusão verificam as permissões por camada do Owlbear. Tokens bloqueados precisam ser desbloqueados antes de serem movidos, girados ou redimensionados. Clicar em uma área vazia limpa a seleção.
 
-O modo 3D fornece controles contextuais próprios; nem toda a interface visual de edição do Owlbear 2D é reproduzida dentro do modal. A seleção e as alterações de itens, porém, são aplicadas aos mesmos itens da cena e permanecem sincronizadas com o modo 2D.
+O modo 3D fornece controles contextuais próprios e implementa equivalentes 3D de algumas ferramentas nativas. Desenhos, réguas e textos são itens reais da cena e permanecem sincronizados com o Owlbear 2D. O SDK não oferece uma API pública para enumerar extensões de terceiros e incorporar automaticamente seus painéis dentro do modal. Extensões externas que criam itens na cena continuam operando sobre a mesma cena; o 3D renderiza os tipos de item que sabe interpretar. Para abrir a interface exclusiva de uma extensão externa, feche o modo 3D e use a ação original dela no Owlbear.
 
 ## Controles
 
@@ -86,7 +93,7 @@ O modo 3D fornece controles contextuais próprios; nem toda a interface visual d
 - Para preservar a privacidade, qualquer cena com preenchimento de Fog ou itens visíveis nas camadas `FOG`, `WALL` ou `LIGHT` é bloqueada. O protótipo ainda não aplica a máscara de visão individual do Owlbear.
 - A câmera é local por jogador. O estado da câmera não altera a viewport 2D do Owlbear.
 - O movimento de tokens é escrito no item original do Owlbear. As permissões `CHARACTER_UPDATE` e `MOUNT_UPDATE` são verificadas antes de iniciar a movimentação.
-- O bloqueio de Fog of War é intencional. A versão 0.1 não tenta copiar nem reconstruir a máscara de visibilidade do Owlbear.
+- O bloqueio de Fog of War é intencional. O visualizador não tenta copiar nem reconstruir a máscara de visibilidade do Owlbear; o fogo 3D é apenas visual e não adiciona fontes de luz ao sistema de visão.
 - A sincronização visual depende dos eventos da cena e da API de interação do Owlbear; não é um servidor multiplayer paralelo.
 
 ## Privacidade e segurança
