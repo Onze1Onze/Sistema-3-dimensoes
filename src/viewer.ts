@@ -97,6 +97,7 @@ let currentFrame: SceneFrame | null = null;
 let dragState: DragState | null = null;
 let pendingDragPointerId: number | null = null;
 let blockedByFog = false;
+let sceneOperationVersion = 0;
 let lastToastTimer = 0;
 let unsubscribeItems: (() => void) | null = null;
 let unsubscribeFog: (() => void) | null = null;
@@ -345,19 +346,22 @@ function clearWorld(): void {
     disposeRecord(record);
   }
   records.clear();
+
+  // Remove também o piso anterior. Mantê-lo após fechar/trocar de cena deixa
+  // geometria antiga visível e pode conservar referências desnecessárias.
   for (const child of [...mapRoot.children]) {
-    if (child.name !== "system-3d-floor") {
-      child.removeFromParent();
-      if (child instanceof THREE.Mesh) {
-        child.geometry.dispose();
-        const material = child.material;
-        if (Array.isArray(material)) material.forEach((entry) => entry.dispose());
-        else material.dispose();
-      }
+    child.removeFromParent();
+    if (child instanceof THREE.Mesh) {
+      child.geometry.dispose();
+      const material = child.material;
+      if (Array.isArray(material)) material.forEach((entry) => entry.dispose());
+      else material.dispose();
     }
   }
   propRoot.clear();
   tokenRoot.clear();
+  currentItems = [];
+  currentFrame = null;
 }
 
 function fitCamera(frame: SceneFrame): void {
@@ -369,9 +373,11 @@ function fitCamera(frame: SceneFrame): void {
   controls.update();
 }
 
-async function checkFogSafety(items: Item[]): Promise<boolean> {
+async function checkFogSafety(items: Item[], isCurrent: () => boolean = () => true): Promise<boolean> {
   const playerRole = await OBR.player.getRole();
+  if (!isCurrent()) return false;
   const fogFilled = await OBR.scene.fog.getFilled();
+  if (!isCurrent()) return false;
   const visibilityItems = items.some((item) =>
     (item.layer === "FOG" || item.type === "WALL" || item.type === "LIGHT") && item.visible !== false,
   );
@@ -392,18 +398,30 @@ async function checkFogSafety(items: Item[]): Promise<boolean> {
 }
 
 async function loadScene(): Promise<void> {
+  const requestVersion = ++sceneOperationVersion;
+  const isCurrent = () => requestVersion === sceneOperationVersion;
+
   try {
     const ready = await OBR.scene.isReady();
+    if (!isCurrent()) return;
+
     if (!ready) {
+      blockedByFog = false;
       clearWorld();
+      updateCounts([]);
       showMessage("Nenhuma cena aberta", "Abra uma cena no Owlbear Rodeo e depois inicie o modo 3D.");
       setStatus("Aguardando cena do Owlbear");
       return;
     }
+
     const items = await OBR.scene.items.getItems();
-    const safe = await checkFogSafety(items);
+    if (!isCurrent()) return;
+
+    const safe = await checkFogSafety(items, isCurrent);
+    if (!isCurrent()) return;
     if (safe) syncScene(items);
   } catch (error) {
+    if (!isCurrent()) return;
     console.error("[Sistema 3D] Erro ao carregar a cena:", error);
     showMessage("Erro ao carregar a cena", "Não foi possível ler os dados desta sala. Verifique se a extensão está habilitada e tente novamente.");
     setStatus("Erro na leitura da cena");
@@ -615,20 +633,27 @@ if (!OBR.isAvailable) {
     unsubscribeReady = OBR.scene.onReadyChange((ready: boolean) => {
       if (ready) void loadScene();
       else {
+        sceneOperationVersion += 1;
         endTokenDrag();
-        clearWorld();
-        currentItems = [];
-        currentFrame = null;
         blockedByFog = false;
+        clearWorld();
         updateCounts([]);
         showMessage("Cena fechada", "Abra uma cena no Owlbear Rodeo para continuar.");
         setStatus("Aguardando uma cena do Owlbear");
       }
     });
     unsubscribeItems = OBR.scene.items.onChange((items: Item[]) => {
+      const requestVersion = ++sceneOperationVersion;
+      const isCurrent = () => requestVersion === sceneOperationVersion;
       void (async () => {
-        const safe = await checkFogSafety(items);
-        if (safe) syncScene(items);
+        try {
+          const safe = await checkFogSafety(items, isCurrent);
+          if (isCurrent() && safe) syncScene(items);
+        } catch (error) {
+          if (!isCurrent()) return;
+          console.error("[Sistema 3D] Erro ao sincronizar alterações da cena:", error);
+          setStatus("Erro ao sincronizar a cena");
+        }
       })();
     });
     unsubscribeFog = OBR.scene.fog.onChange(() => void loadScene());
