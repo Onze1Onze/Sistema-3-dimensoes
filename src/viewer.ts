@@ -675,6 +675,7 @@ async function deleteSelectedTokens(): Promise<void> {
 }
 
 function finishPendingPointerGesture(gesture: PointerDragGesture): void {
+  gesture.cancel();
   if (activePointerGesture === gesture) activePointerGesture = null;
   if (dragState?.pointerId === gesture.pointerId) endTokenDrag();
   else controls.enabled = true;
@@ -836,13 +837,16 @@ function endTokenDrag(): void {
     }
     dragState = null;
   }
+  activePointerGesture?.cancel();
+  activePointerGesture = null;
   controls.enabled = true;
 }
 
 renderer.domElement.addEventListener("pointerdown", (event: PointerEvent) => {
   // Toque primário e botão esquerdo do mouse iniciam o mesmo gesto de arraste.
   // Segundo dedo continua disponível para o OrbitControls tratar gestos de câmera.
-  if (blockedByFog || (event.pointerType === "mouse" && event.button !== 0) || event.isPrimary === false) return;
+  if (blockedByFog || activePointerGesture ||
+      (event.pointerType === "mouse" && event.button !== 0) || event.isPrimary === false) return;
 
   const record = findTokenAtPointer(event);
   if (!record) {
