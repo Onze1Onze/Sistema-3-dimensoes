@@ -177,3 +177,16 @@ kbd { padding: 2px 4px; border: 1px solid #ffffff2c; border-radius: 4px; backgro
   .scene-tool small { font-size: 6px; }
   .tool-settings { left: 64px; width: calc(100vw - 72px); }
 }
+
+
+/* Reservar espaço à esquerda para o dock sem cobrir a legenda da cena. */
+.viewer-bottom-left { left: 102px; }
+.viewer-help { max-width: min(560px, calc(100vw - 210px)); }
+@media (max-width: 760px) {
+  .viewer-bottom-left { left: 68px; bottom: 10px; max-width: calc(100vw - 78px); }
+  .viewer-help { left: 68px; right: 8px; bottom: 55px; max-width: none; }
+}
+@media (max-width: 480px) {
+  .viewer-bottom-left { left: 63px; max-width: calc(100vw - 70px); }
+  .viewer-help { left: 63px; font-size: 8px; }
+}
