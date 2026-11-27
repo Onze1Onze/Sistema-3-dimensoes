@@ -171,7 +171,6 @@ interface DrawingRecord {
 }
 
 interface FireEffect {
-  group: THREE.Group;
   flames: THREE.Mesh[];
   light: THREE.PointLight;
   phase: number;
@@ -990,6 +989,7 @@ function setActiveSceneTool(tool: SceneTool): void {
   });
   canvas?.classList.toggle("tool-active", !["select", "pan"].includes(tool));
   canvas?.classList.toggle("tool-pan", tool === "pan");
+  sceneToolsDock?.classList.toggle("tool-drawing-mode", ["measure", "marker", "line", "rectangle", "circle", "fire", "text"].includes(tool));
   updateToolSettingsPanel();
 }
 
@@ -1808,16 +1808,12 @@ toolSettingsToggle?.addEventListener("click", () => {
   if (toolSettingsPanel?.hidden) openToolSettings();
   else if (toolSettingsPanel) toolSettingsPanel.hidden = true;
 });
-toolSettingsClose?.addEventListener("click", () => {
-  if (toolSettingsPanel) toolSettingsPanel.hidden = true;
-});
+toolSettingsClose?.addEventListener("click", closeToolPanels);
 integrationsToggle?.addEventListener("click", () => {
   if (integrationsPanel) integrationsPanel.hidden = !integrationsPanel.hidden;
   if (toolSettingsPanel) toolSettingsPanel.hidden = true;
 });
-integrationsClose?.addEventListener("click", () => {
-  if (integrationsPanel) integrationsPanel.hidden = true;
-});
+integrationsClose?.addEventListener("click", closeToolPanels);
 toolUndoButton?.addEventListener("click", () => void undoLastSceneToolItem());
 strokeWidthInput?.addEventListener("input", () => {
   if (strokeWidthValue) strokeWidthValue.value = `${strokeWidthInput.value} px`;
