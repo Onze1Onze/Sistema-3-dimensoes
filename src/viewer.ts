@@ -109,12 +109,20 @@ interface DragState {
   pointerId: number;
 }
 
+interface PendingTokenDrag {
+  record: RenderRecord;
+  gesture: PointerDragGesture;
+  selectedIds: string[];
+  startPosition: { x: number; y: number };
+}
+
 const records = new Map<string, RenderRecord>();
 const textures = new Map<string, THREE.Texture>();
 let currentItems: Item[] = [];
 let currentFrame: SceneFrame | null = null;
 let dragState: DragState | null = null;
 let activePointerGesture: PointerDragGesture | null = null;
+let pendingTokenDrag: PendingTokenDrag | null = null;
 let emptyClickCandidate: { pointerId: number; x: number; y: number } | null = null;
 let selectedTokenIds = new Set<string>();
 let currentPlayerRole: "GM" | "PLAYER" = "PLAYER";
@@ -541,17 +549,31 @@ function getMapPositionAtPointer(event: PointerEvent, frame: SceneFrame): { x: n
   raycaster.setFromCamera(pointer, camera);
   const hit = new THREE.Vector3();
   if (!raycaster.ray.intersectPlane(groundPlane, hit)) return null;
-  return worldToMap(hit.x, hit.z, frame);
+  if (!Number.isFinite(hit.x) || !Number.isFinite(hit.z)) return null;
+  const position = worldToMap(hit.x, hit.z, frame);
+  return Number.isFinite(position.x) && Number.isFinite(position.y) ? position : null;
+}
+
+function getTokenPermission(item: Item, operation: "UPDATE" | "DELETE"): string {
+  return item.layer === "CHARACTER"
+    ? operation === "UPDATE" ? "CHARACTER_UPDATE" : "CHARACTER_DELETE"
+    : operation === "UPDATE" ? "MOUNT_UPDATE" : "MOUNT_DELETE";
+}
+
+async function getPermittedTokenItems(items: Item[], operation: "UPDATE" | "DELETE"): Promise<Item[]> {
+  const requiredPermissions = [...new Set(items.map((item) => getTokenPermission(item, operation)))];
+  const permissionResults = await Promise.all(
+    requiredPermissions.map(async (permission) => [permission, await OBR.player.hasPermission(permission)] as const),
+  );
+  const allowedPermissions = new Set(
+    permissionResults.filter(([, allowed]) => allowed).map(([permission]) => permission),
+  );
+  return items.filter((item) => allowedPermissions.has(getTokenPermission(item, operation)));
 }
 
 async function canUpdateTokenItems(items: Item[], operation: "UPDATE" | "DELETE"): Promise<boolean> {
-  for (const item of items) {
-    const permission = item.layer === "CHARACTER"
-      ? operation === "UPDATE" ? "CHARACTER_UPDATE" : "CHARACTER_DELETE"
-      : operation === "UPDATE" ? "MOUNT_UPDATE" : "MOUNT_DELETE";
-    if (!await OBR.player.hasPermission(permission)) return false;
-  }
-  return true;
+  const permittedItems = await getPermittedTokenItems(items, operation);
+  return permittedItems.length === items.length;
 }
 
 async function rotateSelectedTokens(amount: number): Promise<void> {
@@ -654,13 +676,13 @@ async function toggleSelectedTokenVisibility(): Promise<void> {
 async function deleteSelectedTokens(): Promise<void> {
   const items = getSelectedTokenItems();
   if (items.length === 0) return;
-  if (!await canUpdateTokenItems(items, "DELETE")) {
-    notify("Você não tem permissão para excluir todos os tokens selecionados.");
-    return;
-  }
-  const count = items.length;
-  if (!window.confirm("Excluir " + count + (count === 1 ? " token selecionado?" : " tokens selecionados?"))) return;
   try {
+    if (!await canUpdateTokenItems(items, "DELETE")) {
+      notify("Você não tem permissão para excluir todos os tokens selecionados.");
+      return;
+    }
+    const count = items.length;
+    if (!window.confirm("Excluir " + count + (count === 1 ? " token selecionado?" : " tokens selecionados?"))) return;
     const ids = items.map((item) => item.id);
     const attachments = await OBR.scene.items.getItemAttachments(ids);
     const allIds = [...new Set([...ids, ...attachments.map((item) => item.id)])];
@@ -677,8 +699,15 @@ async function deleteSelectedTokens(): Promise<void> {
 function finishPendingPointerGesture(gesture: PointerDragGesture): void {
   gesture.cancel();
   if (activePointerGesture === gesture) activePointerGesture = null;
+  if (pendingTokenDrag?.gesture === gesture) pendingTokenDrag = null;
   if (dragState?.pointerId === gesture.pointerId) endTokenDrag();
   else controls.enabled = true;
+}
+
+function requestPendingTokenDrag(gesture: PointerDragGesture): void {
+  const pending = pendingTokenDrag;
+  if (!pending || pending.gesture !== gesture || !gesture.requestStart()) return;
+  void beginTokenDrag(pending.record, pending.gesture, pending.selectedIds, pending.startPosition);
 }
 
 async function beginTokenDrag(
@@ -707,17 +736,8 @@ async function beginTokenDrag(
       .filter((item): item is Item => item !== undefined &&
         (item.layer === "CHARACTER" || item.layer === "MOUNT") &&
         item.type === "IMAGE" && "image" in item);
-    const movableItems: Item[] = [];
-
-    for (const item of selectedItems) {
-      if (!gesture.isActive || activePointerGesture !== gesture) {
-        finishPendingPointerGesture(gesture);
-        return;
-      }
-      if (item.locked) continue;
-      const permission = item.layer === "CHARACTER" ? "CHARACTER_UPDATE" : "MOUNT_UPDATE";
-      if (await OBR.player.hasPermission(permission)) movableItems.push(item);
-    }
+    const unlockedItems = selectedItems.filter((item) => !item.locked);
+    const movableItems = await getPermittedTokenItems(unlockedItems, "UPDATE");
 
     if (!gesture.isActive || activePointerGesture !== gesture) {
       finishPendingPointerGesture(gesture);
@@ -732,12 +752,8 @@ async function beginTokenDrag(
       return;
     }
 
-    // Um toque curto apenas seleciona. Só iniciamos a interação de movimento
-    // quando existe deslocamento real do dedo/ponteiro.
-    if (gesture.released && !gesture.shouldMove) {
-      finishPendingPointerGesture(gesture);
-      return;
-    }
+    // A interação só é solicitada depois de movimento real. Se o dedo já foi
+    // solto enquanto o SDK inicializava, o último ponto ainda será aplicado.
 
     // O caminho rápido de interação do SDK não recalcula a hierarquia de
     // anexos. Incluímos os anexos/subanexos e deslocamos tudo pelo mesmo delta.
@@ -829,6 +845,7 @@ function moveDraggedToken(event: PointerEvent): void {
 }
 
 function endTokenDrag(): void {
+  pendingTokenDrag = null;
   if (dragState) {
     try {
       dragState.stop();
@@ -890,6 +907,7 @@ renderer.domElement.addEventListener("pointerdown", (event: PointerEvent) => {
     clientY: event.clientY,
   });
   activePointerGesture = gesture;
+  pendingTokenDrag = { record, gesture, selectedIds: next, startPosition };
   controls.enabled = false;
 
   // Capturar o ponteiro faz o canvas continuar recebendo os movimentos mesmo
@@ -905,11 +923,9 @@ renderer.domElement.addEventListener("pointerdown", (event: PointerEvent) => {
   void OBR.player.select(next, true).catch((error) => {
     console.warn("[Sistema 3D] Não foi possível sincronizar a seleção:", error);
   });
-
-  void beginTokenDrag(record, gesture, next, startPosition);
 }, { capture: true });
 
-renderer.domElement.addEventListener("pointermove", (event: PointerEvent) => {
+window.addEventListener("pointermove", (event: PointerEvent) => {
   if (emptyClickCandidate?.pointerId === event.pointerId) {
     const dx = event.clientX - emptyClickCandidate.x;
     const dy = event.clientY - emptyClickCandidate.y;
@@ -918,14 +934,16 @@ renderer.domElement.addEventListener("pointermove", (event: PointerEvent) => {
 
   const gesture = activePointerGesture;
   if (gesture?.pointerId === event.pointerId && gesture.isActive) {
+    event.preventDefault();
     gesture.move({ clientX: event.clientX, clientY: event.clientY });
+    if (gesture.shouldMove) requestPendingTokenDrag(gesture);
     if (dragState?.pointerId === event.pointerId && gesture.shouldMove) {
       moveDraggedToken(event);
     }
   }
 }, { capture: true });
 
-renderer.domElement.addEventListener("pointerup", (event: PointerEvent) => {
+window.addEventListener("pointerup", (event: PointerEvent) => {
   const wasEmptyClick = emptyClickCandidate?.pointerId === event.pointerId;
   emptyClickCandidate = null;
 
@@ -933,10 +951,14 @@ renderer.domElement.addEventListener("pointerup", (event: PointerEvent) => {
   if (gesture?.pointerId === event.pointerId) {
     gesture.release({ clientX: event.clientX, clientY: event.clientY });
 
+    if (gesture.shouldMove) requestPendingTokenDrag(gesture);
     if (dragState?.pointerId === event.pointerId) {
       if (gesture.shouldMove) moveDraggedTokenAt(gesture.current.clientX, gesture.current.clientY);
       endTokenDrag();
       activePointerGesture = null;
+    } else if (!gesture.shouldMove) {
+      // Um toque sem deslocamento seleciona, mas não cria uma interação de rede.
+      finishPendingPointerGesture(gesture);
     }
     // Se startItemInteraction ainda está resolvendo, mantemos o gesto liberado
     // vivo. beginTokenDrag aplicará sua posição final assim que o SDK responder.
@@ -949,16 +971,25 @@ renderer.domElement.addEventListener("pointerup", (event: PointerEvent) => {
   }
 }, { capture: true });
 
-renderer.domElement.addEventListener("pointercancel", (event: PointerEvent) => {
+window.addEventListener("pointercancel", (event: PointerEvent) => {
   emptyClickCandidate = null;
   const gesture = activePointerGesture;
   if (gesture?.pointerId === event.pointerId) {
     gesture.cancel();
+    if (pendingTokenDrag?.gesture === gesture) pendingTokenDrag = null;
     activePointerGesture = null;
   }
   if (dragState?.pointerId === event.pointerId) endTokenDrag();
   else controls.enabled = true;
 }, { capture: true });
+
+renderer.domElement.addEventListener("lostpointercapture", (event: PointerEvent) => {
+  const gesture = activePointerGesture;
+  // O navegador também dispara este evento após um pointerup normal. Nesse
+  // caso o gesto precisa continuar vivo até o SDK concluir a interação.
+  if (!gesture || gesture.pointerId !== event.pointerId || gesture.released) return;
+  finishPendingPointerGesture(gesture);
+});
 
 scaleDownButton?.addEventListener("click", () => void scaleSelectedTokens(0.9));
 scaleUpButton?.addEventListener("click", () => void scaleSelectedTokens(1.1));
@@ -968,7 +999,10 @@ lockButton?.addEventListener("click", () => void toggleSelectedTokenLock());
 visibilityButton?.addEventListener("click", () => void toggleSelectedTokenVisibility());
 deleteButton?.addEventListener("click", () => void deleteSelectedTokens());
 deselectButton?.addEventListener("click", () => {
-  void OBR.player.deselect().then(() => syncSelectedTokens([]));
+  void OBR.player.deselect().then(() => syncSelectedTokens([])).catch((error) => {
+    console.warn("[Sistema 3D] Não foi possível limpar a seleção:", error);
+    notify("Não foi possível limpar a seleção.");
+  });
 });
 
 function updateBillboardFacing(): void {
@@ -992,7 +1026,18 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") void OBR.modal.close(MODAL_ID);
 });
 window.addEventListener("keyup", (event) => keysDown.delete(event.key.toLowerCase()));
-window.addEventListener("blur", () => keysDown.clear());
+function cancelUnreleasedPointerGesture(): void {
+  const gesture = activePointerGesture;
+  if (gesture && !gesture.released) finishPendingPointerGesture(gesture);
+}
+
+window.addEventListener("blur", () => {
+  keysDown.clear();
+  cancelUnreleasedPointerGesture();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) cancelUnreleasedPointerGesture();
+});
 
 function moveCameraWithKeys(delta: number): void {
   if (keysDown.size === 0 || dragState) return;
