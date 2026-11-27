@@ -821,6 +821,17 @@ async function refreshGridSettings(): Promise<void> {
     ]);
     if (Number.isFinite(dpi) && dpi > 0) gridDpi = dpi;
     const parsed = scale?.parsed;
+    const gridInfo = document.querySelector<HTMLElement>("#grid-measurement-info");
+    if (gridInfo) {
+      const measurement = await OBR.scene.grid.getMeasurement();
+      const measurementNames: Record<string, string> = {
+        CHEBYSHEV: "xadrez",
+        ALTERNATING: "diagonal alternada",
+        EUCLIDEAN: "euclidiana",
+        MANHATTAN: "Manhattan",
+      };
+      gridInfo.textContent = `Grade: ${scale?.raw ?? "sem escala"} · Medição: ${measurementNames[measurement] ?? measurement}`;
+    }
     if (parsed) {
       gridScaleInfo = {
         multiplier: Number(parsed.multiplier) || 1,
@@ -995,6 +1006,12 @@ function setActiveSceneTool(tool: SceneTool): void {
   canvas?.classList.toggle("tool-pan", tool === "pan");
   sceneToolsDock?.classList.toggle("tool-drawing-mode", ["measure", "marker", "line", "rectangle", "circle", "fire", "text"].includes(tool));
   updateToolSettingsPanel();
+  if (["select", "pan"].includes(tool)) {
+    closeToolPanels();
+  } else {
+    if (toolSettingsPanel) toolSettingsPanel.hidden = false;
+    if (integrationsPanel) integrationsPanel.hidden = true;
+  }
 }
 
 function readDrawingSettings(): { stroke: string; fill: string; width: number; opacity: number } {
@@ -1159,10 +1176,11 @@ async function createSceneDrawing(gesture: SceneToolGesture): Promise<void> {
     }
     if (gesture.tool === "rectangle" || gesture.tool === "circle") {
       const bounds = getSceneToolBounds(start, end);
+      const circleDiameter = Math.max(bounds.width, bounds.height);
       const shape = buildShape()
         .position(bounds.center)
-        .width(bounds.width)
-        .height(gesture.tool === "circle" ? bounds.width : bounds.height)
+        .width(gesture.tool === "circle" ? circleDiameter : bounds.width)
+        .height(gesture.tool === "circle" ? circleDiameter : bounds.height)
         .shapeType(gesture.tool === "circle" ? "CIRCLE" : "RECTANGLE")
         .fillColor(settings.fill)
         .fillOpacity(settings.opacity)
