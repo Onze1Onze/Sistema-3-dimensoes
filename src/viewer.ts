@@ -25,6 +25,7 @@ import {
   WORLD_UNITS_PER_PIXEL,
 } from "./scene-model";
 import { createImageMaterial } from "./image-material";
+import { scaleMapLayout } from "./map-scaling";
 import {
   canModifyCharacter,
   nextTokenSelection,
@@ -84,6 +85,11 @@ const toolSettingsClose = document.querySelector<HTMLButtonElement>("#tool-setti
 const integrationsToggle = document.querySelector<HTMLButtonElement>("#integrations-toggle");
 const integrationsClose = document.querySelector<HTMLButtonElement>("#integrations-close");
 const toolUndoButton = document.querySelector<HTMLButtonElement>("#tool-undo");
+const mapScaleToggle = document.querySelector<HTMLButtonElement>("#map-scale-toggle");
+const mapScalePanel = document.querySelector<HTMLElement>("#map-scale-panel");
+const mapScaleClose = document.querySelector<HTMLButtonElement>("#map-scale-close");
+const mapScaleInput = document.querySelector<HTMLInputElement>("#map-scale-input");
+const mapScaleValue = document.querySelector<HTMLOutputElement>("#map-scale-value");
 
 if (!canvas) throw new Error("Canvas do visualizador não foi encontrado.");
 
@@ -228,6 +234,7 @@ let pendingSceneFrame: { signature: string; promise: Promise<SceneFrame | null> 
 let sceneOperationVersion = 0;
 let sceneSessionVersion = 0;
 let gridSettingsVersion = 0;
+let mapScaleCommitInProgress = false;
 let animationFrameId = 0;
 let animationRunning = true;
 let lastToastTimer = 0;
@@ -268,6 +275,15 @@ function updateCounts(items: Item[]): void {
   if (mapCount) mapCount.textContent = `${counts.maps} mapas`;
   if (tokenCount) tokenCount.textContent = `${counts.tokens} miniaturas`;
   if (propCount) propCount.textContent = `${counts.props} objetos`;
+}
+
+function resetMapScalePreview(): void {
+  mapRoot.scale.set(1, 1, 1);
+  if (mapScaleInput) {
+    mapScaleInput.value = "100";
+    mapScaleInput.disabled = mapScaleCommitInProgress;
+  }
+  if (mapScaleValue) mapScaleValue.value = "100%";
 }
 
 function disposeRecord(record: RenderRecord): void {
@@ -955,6 +971,7 @@ function updateFireEffects(time: number): void {
 }
 
 function clearWorld(): void {
+  resetMapScalePreview();
   sceneToolGesture = null;
   clearToolPreview();
   if (measureReadout) measureReadout.hidden = true;
@@ -1203,6 +1220,7 @@ function updateToolSettingsPanel(): void {
 }
 
 function setActiveSceneTool(tool: SceneTool): void {
+  closeMapScalePanel();
   if (sceneToolGesture) {
     sceneToolGesture = null;
     clearToolPreview();
@@ -1608,7 +1626,97 @@ function endSceneToolGesture(event: PointerEvent, cancelled = false): void {
   void createSceneDrawing(gesture);
 }
 
+function closeMapScalePanel(): void {
+  if (mapScalePanel) mapScalePanel.hidden = true;
+  mapScaleToggle?.setAttribute("aria-expanded", "false");
+  if (!mapScaleCommitInProgress) resetMapScalePreview();
+}
+
+function openMapScalePanel(): void {
+  if (mapScaleCommitInProgress) return;
+  closeMapScalePanel();
+  if (toolSettingsPanel) toolSettingsPanel.hidden = true;
+  if (integrationsPanel) integrationsPanel.hidden = true;
+  if (mapScalePanel) mapScalePanel.hidden = false;
+  mapScaleToggle?.setAttribute("aria-expanded", "true");
+  toolSettingsToggle?.setAttribute("aria-expanded", "false");
+  integrationsToggle?.setAttribute("aria-expanded", "false");
+}
+
+async function applyMapScaleFromSlider(): Promise<void> {
+  if (!mapScaleInput || mapScaleCommitInProgress) return;
+  const percent = THREE.MathUtils.clamp(Number(mapScaleInput.value) || 100, 50, 200);
+  const factor = percent / 100;
+  if (Math.abs(factor - 1) < 1e-6) {
+    resetMapScalePreview();
+    return;
+  }
+
+  const expectedSceneVersion = sceneSessionVersion;
+  mapScaleCommitInProgress = true;
+  mapScaleInput.disabled = true;
+  if (mapScaleToggle) mapScaleToggle.disabled = true;
+
+  try {
+    const [ready, allowed, items] = await Promise.all([
+      OBR.scene.isReady(),
+      OBR.player.hasPermission("MAP_UPDATE"),
+      OBR.scene.items.getItems(),
+    ]);
+    if (expectedSceneVersion !== sceneSessionVersion || blockedByFog || !ready) {
+      notify("A cena mudou ou não está disponível. O redimensionamento foi cancelado.");
+      return;
+    }
+    if (!allowed) {
+      notify("Você não tem permissão para redimensionar mapas nesta cena.");
+      return;
+    }
+
+    const mapItems = getSceneImages(items).filter((item) =>
+      item.layer === "MAP" && item.image.mime.startsWith("image/") &&
+      item.image.width > 0 && item.image.height > 0,
+    );
+    if (mapItems.length === 0) {
+      notify("Não há imagens visíveis na camada MAP para redimensionar.");
+      return;
+    }
+
+    const bounds = await OBR.scene.items.getItemBounds(mapItems.map((item) => item.id));
+    if (expectedSceneVersion !== sceneSessionVersion || blockedByFog || !await OBR.scene.isReady()) {
+      notify("A cena mudou durante o redimensionamento. A operação foi cancelada.");
+      return;
+    }
+    const center = {
+      x: (bounds.min.x + bounds.max.x) / 2,
+      y: (bounds.min.y + bounds.max.y) / 2,
+    };
+    const transforms = scaleMapLayout(mapItems, center, factor);
+    const transformsById = new Map(transforms.map((transform) => [transform.id, transform]));
+
+    await OBR.scene.items.updateItems(mapItems, (draft) => {
+      for (const item of draft) {
+        const transform = transformsById.get(item.id);
+        if (!transform) continue;
+        item.position = transform.position;
+        item.scale = transform.scale;
+      }
+    });
+
+    if (expectedSceneVersion === sceneSessionVersion) {
+      notify(`${mapItems.length} ${mapItems.length === 1 ? "imagem de mapa redimensionada" : "imagens de mapa redimensionadas"} para ${percent}%.`);
+    }
+  } catch (error) {
+    console.error("[Sistema 3D] Falha ao redimensionar os mapas:", error);
+    notify("Não foi possível redimensionar os mapas. Verifique a permissão MAP_UPDATE.");
+  } finally {
+    mapScaleCommitInProgress = false;
+    resetMapScalePreview();
+    if (mapScaleToggle) mapScaleToggle.disabled = false;
+  }
+}
+
 function openToolSettings(): void {
+  closeMapScalePanel();
   if (toolSettingsPanel) toolSettingsPanel.hidden = false;
   if (integrationsPanel) integrationsPanel.hidden = true;
   toolSettingsToggle?.setAttribute("aria-expanded", "true");
@@ -1617,6 +1725,7 @@ function openToolSettings(): void {
 }
 
 function closeToolPanels(): void {
+  closeMapScalePanel();
   if (toolSettingsPanel) toolSettingsPanel.hidden = true;
   if (integrationsPanel) integrationsPanel.hidden = true;
   toolSettingsToggle?.setAttribute("aria-expanded", "false");
@@ -2249,8 +2358,21 @@ toolSettingsToggle?.addEventListener("click", () => {
   else closeToolPanels();
 });
 toolSettingsClose?.addEventListener("click", closeToolPanels);
+mapScaleToggle?.addEventListener("click", () => {
+  if (mapScalePanel?.hidden) openMapScalePanel();
+  else closeMapScalePanel();
+});
+mapScaleClose?.addEventListener("click", closeToolPanels);
+mapScaleInput?.addEventListener("input", () => {
+  const percent = THREE.MathUtils.clamp(Number(mapScaleInput.value) || 100, 50, 200);
+  if (mapScaleValue) mapScaleValue.value = `${Math.round(percent)}%`;
+  // Preview is local; no SDK write is sent for each slider movement.
+  mapRoot.scale.setScalar(percent / 100);
+});
+mapScaleInput?.addEventListener("change", () => void applyMapScaleFromSlider());
 integrationsToggle?.addEventListener("click", () => {
   const shouldOpen = Boolean(integrationsPanel?.hidden);
+  closeMapScalePanel();
   if (integrationsPanel) integrationsPanel.hidden = !shouldOpen;
   if (toolSettingsPanel) toolSettingsPanel.hidden = true;
   integrationsToggle?.setAttribute("aria-expanded", String(shouldOpen));

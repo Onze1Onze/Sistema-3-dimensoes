@@ -1,6 +1,6 @@
 # Especificação técnica — Owlbear 3D
 
-**Versão do produto:** 1.2.0  
+**Versão do produto:** 1.3.0  
 **Estado:** implementação em evolução; este documento registra a arquitetura e as limitações conhecidas.  
 **Objetivo:** abrir uma visualização tridimensional da cena atual do Owlbear Rodeo, usando o Owlbear como fonte oficial dos dados e um renderizador Three.js independente.
 
@@ -11,6 +11,8 @@
 ---
 
 ## 1. Decisão de arquitetura
+
+A partir da versão 1.3.0, o visualizador também oferece redimensionamento conjunto das imagens da camada MAP. O controle deslizante fornece prévia local durante o arraste e envia uma única atualização autorizada por MAP_UPDATE ao ser solto. A escala é aplicada ao redor do centro global dos limites das imagens, preservando o arranjo dos mapas compostos por várias peças.
 
 A extensão não tentará substituir nem modificar o renderizador interno do Owlbear Rodeo. Ela funcionará como um segundo visualizador, aberto por uma janela modal em tela cheia, que lê a cena do Owlbear pelo SDK oficial e constrói uma representação 3D sincronizada.
 
