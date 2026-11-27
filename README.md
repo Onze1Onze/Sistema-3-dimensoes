@@ -15,6 +15,11 @@ Implementado nesta primeira entrega:
 - Imagens da camada `PROP` como elementos planos sobre o tabuleiro.
 - Câmera orbital com zoom, vistas isométrica/superior e centralização.
 - Movimento de miniaturas autorizado pelo SDK, usando `OBR.interaction`.
+- Seleção de tokens sincronizada com a seleção do jogador no Owlbear (`OBR.player.select/getSelection/onChange`).
+- Seleção múltipla com Shift e Ctrl/Cmd, deseleção ao clicar no espaço vazio e destaque visual dos tokens selecionados.
+- Arraste conjunto de tokens selecionados, mantendo posições relativas e deslocando também anexos/subanexos da hierarquia.
+- Barra contextual 3D para girar, redimensionar, bloquear/desbloquear, ocultar/mostrar (somente mestre) e excluir tokens selecionados.
+- Verificação das permissões de atualização/exclusão antes de alterar itens da cena.
 - Atualização visual a partir de `OBR.scene.items.onChange`.
 - Bloqueio preventivo da visualização em cenas com Fog of War preenchido ou itens visíveis nas camada `FOG` ou itens do tipo `WALL` e `LIGHT`.
 - Testes unitários das transformações de coordenadas e dimensionamento.
@@ -49,6 +54,14 @@ npm run preview
 ```
 
 O build de produção fica na pasta `dist/`. O repositório está configurado para publicação pelo GitHub Pages via GitHub Actions; depois de habilitar Pages em **Settings → Pages → Build and deployment → Source: GitHub Actions**, a URL de instalação será `https://onze1onze.github.io/Sistema-3-dimensoes/manifest.json`.
+
+## Interação com tokens no modo 3D
+
+A seleção feita no modo 3D é sincronizada com a seleção padrão do Owlbear. Clique em um token para selecioná-lo; use **Shift + clique** para adicionar tokens à seleção ou **Ctrl/Cmd + clique** para alternar um token. Arraste qualquer token selecionado para mover o grupo, preservando a distância entre eles e incluindo os anexos da hierarquia.
+
+Quando há tokens selecionados, aparece uma barra contextual com ações de rotação, escala, bloqueio, visibilidade (somente mestre) e exclusão. As ações de edição e exclusão verificam as permissões por camada do Owlbear. Tokens bloqueados precisam ser desbloqueados antes de serem movidos, girados ou redimensionados. Clicar em uma área vazia limpa a seleção.
+
+O modo 3D fornece controles contextuais próprios; nem toda a interface visual de edição do Owlbear 2D é reproduzida dentro do modal. A seleção e as alterações de itens, porém, são aplicadas aos mesmos itens da cena e permanecem sincronizadas com o modo 2D.
 
 ## Controles
 
