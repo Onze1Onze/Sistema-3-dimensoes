@@ -474,9 +474,294 @@ function syncScene(items: Item[]): void {
   removeMissingRecords(allowedIds);
   syncSelectedTokens([...selectedTokenIds]);
 
+  syncDrawingItems(items, frame);
+
   const count = images.length;
   hideMessage();
   setStatus(`${count} elemento(s) sincronizado(s) · cena em tempo real`);
+}
+
+function disposeObjectTree(object: THREE.Object3D): void {
+  object.traverse((child) => {
+    const renderable = child as THREE.Mesh | THREE.Line;
+    if ("geometry" in renderable && renderable.geometry) renderable.geometry.dispose();
+    if ("material" in renderable && renderable.material) {
+      const materials = Array.isArray(renderable.material) ? renderable.material : [renderable.material];
+      materials.forEach((material) => {
+        const map = (material as THREE.Material & { map?: THREE.Texture | null }).map;
+        map?.dispose();
+        material.dispose();
+      });
+    }
+  });
+}
+
+function createPolyline(points: ScenePoint[], color: string, opacity = 1): THREE.Line | null {
+  if (points.length < 2 || !currentFrame) return null;
+  const vertices = points.map((point) => {
+    const world = mapToWorld(point.x, point.y, currentFrame!);
+    return new THREE.Vector3(world.x, 0.045, world.z);
+  });
+  const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
+  const material = new THREE.LineBasicMaterial({
+    color,
+    transparent: opacity < 1,
+    opacity,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const line = new THREE.Line(geometry, material);
+  line.renderOrder = 12000;
+  return line;
+}
+
+function createTextSprite(text: string, color = "#ffffff"): THREE.Sprite {
+  const canvasText = document.createElement("canvas");
+  canvasText.width = 512;
+  canvasText.height = 128;
+  const context = canvasText.getContext("2d");
+  if (context) {
+    context.fillStyle = "#111a27e8";
+    context.strokeStyle = "#9bc3ff";
+    context.lineWidth = 5;
+    context.roundRect(5, 5, 502, 118, 22);
+    context.fill();
+    context.stroke();
+    context.fillStyle = color;
+    context.font = "bold 42px Segoe UI, sans-serif";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(text.slice(0, 40), 256, 64, 470);
+  }
+  const texture = new THREE.CanvasTexture(canvasText);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, toneMapped: false });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(1.25, 0.31, 1);
+  sprite.renderOrder = 13000;
+  return sprite;
+}
+
+function createFireEffect(item: Item, frame: SceneFrame): THREE.Group {
+  const data = item as unknown as {
+    position: ScenePoint;
+    width: number;
+    metadata?: Record<string, unknown>;
+  };
+  const metadata = data.metadata?.[SCENE_TOOL_METADATA] as { kind?: string; radiusPixels?: number } | undefined;
+  const radius = Math.max(0.18, ((metadata?.radiusPixels ?? data.width ?? 80) * WORLD_UNITS_PER_PIXEL) / 2);
+  const world = mapToWorld(data.position.x, data.position.y, frame);
+  const group = new THREE.Group();
+  group.position.set(world.x, 0.035, world.z);
+  group.rotation.y = THREE.MathUtils.degToRad(item.rotation || 0);
+
+  const area = new THREE.Mesh(
+    new THREE.CircleGeometry(radius, 40),
+    new THREE.MeshBasicMaterial({ color: "#ff7a32", transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false }),
+  );
+  area.rotation.x = -Math.PI / 2;
+  area.position.y = 0.008;
+  group.add(area);
+
+  const rim = new THREE.Mesh(
+    new THREE.RingGeometry(radius * 0.94, radius, 48),
+    new THREE.MeshBasicMaterial({ color: "#ffb46a", transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }),
+  );
+  rim.rotation.x = -Math.PI / 2;
+  rim.position.y = 0.02;
+  group.add(rim);
+
+  const flames: THREE.Mesh[] = [];
+  const flameColors = ["#ff5b24", "#ff9b32", "#ffd36d", "#ff7227", "#ffe09a"];
+  const count = Math.max(5, Math.min(9, Math.round(radius * 7)));
+  for (let i = 0; i < count; i += 1) {
+    const geometry = new THREE.ConeGeometry(0.075 + (i % 3) * 0.025, 0.36 + (i % 4) * 0.1, 6);
+    const material = new THREE.MeshBasicMaterial({
+      color: flameColors[i % flameColors.length],
+      transparent: true,
+      opacity: 0.88,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const flame = new THREE.Mesh(geometry, material);
+    const angle = (i / count) * Math.PI * 2;
+    const distance = radius * (0.15 + (i % 3) * 0.12);
+    flame.position.set(Math.cos(angle) * distance, 0.2 + (i % 2) * 0.06, Math.sin(angle) * distance);
+    flame.rotation.z = Math.sin(angle) * 0.17;
+    flame.userData.firePhase = i * 0.9;
+    group.add(flame);
+    flames.push(flame);
+  }
+  const light = new THREE.PointLight("#ff8a35", 1.5, Math.max(1.5, radius * 5), 2);
+  light.position.set(0, 0.75, 0);
+  group.add(light);
+  group.userData.fireEffect = { flames, light, phase: Math.random() * Math.PI * 2 } satisfies FireEffect;
+  return group;
+}
+
+function createDrawingObject(item: Item, frame: SceneFrame): THREE.Object3D | null {
+  const data = item as unknown as {
+    type: string;
+    position?: ScenePoint;
+    rotation?: number;
+    width?: number;
+    height?: number;
+    shapeType?: string;
+    style?: Record<string, unknown>;
+    startPosition?: ScenePoint;
+    endPosition?: ScenePoint;
+    points?: ScenePoint[];
+    measurement?: string;
+    text?: { plainText?: string };
+    metadata?: Record<string, unknown>;
+  };
+  if (data.type === "SHAPE") {
+    const style = data.style ?? {};
+    const metadata = data.metadata?.[SCENE_TOOL_METADATA] as { kind?: string } | undefined;
+    if (metadata?.kind === "fire") return createFireEffect(item, frame);
+    const width = Math.max(1, Math.abs(data.width ?? 1)) * WORLD_UNITS_PER_PIXEL;
+    const height = Math.max(1, Math.abs(data.height ?? 1)) * WORLD_UNITS_PER_PIXEL;
+    const shape = new THREE.Shape();
+    if (data.shapeType === "CIRCLE") {
+      shape.absellipse(0, 0, width / 2, height / 2, 0, Math.PI * 2, false, 0);
+    } else if (data.shapeType === "TRIANGLE") {
+      shape.moveTo(0, height / 2);
+      shape.lineTo(-width / 2, -height / 2);
+      shape.lineTo(width / 2, -height / 2);
+      shape.closePath();
+    } else if (data.shapeType === "HEXAGON") {
+      for (let i = 0; i < 6; i += 1) {
+        const angle = (i / 6) * Math.PI * 2;
+        const x = Math.cos(angle) * width / 2;
+        const y = Math.sin(angle) * height / 2;
+        if (i === 0) shape.moveTo(x, y);
+        else shape.lineTo(x, y);
+      }
+      shape.closePath();
+    } else {
+      shape.moveTo(-width / 2, -height / 2);
+      shape.lineTo(width / 2, -height / 2);
+      shape.lineTo(width / 2, height / 2);
+      shape.lineTo(-width / 2, height / 2);
+      shape.closePath();
+    }
+    const group = new THREE.Group();
+    const fillColor = String(style.fillColor ?? "#8bb8ff");
+    const fillOpacity = Number(style.fillOpacity ?? 0.16);
+    const mesh = new THREE.Mesh(
+      new THREE.ShapeGeometry(shape),
+      new THREE.MeshBasicMaterial({ color: fillColor, transparent: true, opacity: Number.isFinite(fillOpacity) ? fillOpacity : 0.16, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.y = 0.04;
+    group.add(mesh);
+    const outlinePoints = shape.getPoints(48).map((point) => new THREE.Vector3(point.x, 0.05, -point.y));
+    if (outlinePoints.length > 1) {
+      outlinePoints.push(outlinePoints[0].clone());
+      const outline = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(outlinePoints),
+        new THREE.LineBasicMaterial({ color: String(style.strokeColor ?? "#8bb8ff"), transparent: true, opacity: Number(style.strokeOpacity ?? 1), depthWrite: false }),
+      );
+      group.add(outline);
+    }
+    if (data.position) {
+      const world = mapToWorld(data.position.x, data.position.y, frame);
+      group.position.set(world.x, 0, world.z);
+    }
+    group.rotation.y = THREE.MathUtils.degToRad(data.rotation ?? 0);
+    return group;
+  }
+
+  if (data.type === "LINE" || data.type === "RULER") {
+    if (!data.startPosition || !data.endPosition) return null;
+    const color = data.type === "RULER" ? "#9bc3ff" : String(data.style?.strokeColor ?? "#8bb8ff");
+    const points = [data.startPosition, data.endPosition];
+    const line = createPolyline(points, color, Number(data.style?.strokeOpacity ?? 1));
+    if (!line) return null;
+    const group = new THREE.Group();
+    group.add(line);
+    if (data.type === "RULER" && data.measurement) {
+      const start = mapToWorld(data.startPosition.x, data.startPosition.y, frame);
+      const end = mapToWorld(data.endPosition.x, data.endPosition.y, frame);
+      const label = createTextSprite(data.measurement, "#dceaff");
+      label.position.set((start.x + end.x) / 2, 0.42, (start.z + end.z) / 2);
+      group.add(label);
+    }
+    return group;
+  }
+
+  if (data.type === "CURVE" && data.points?.length) {
+    const points = data.points;
+    const style = data.style ?? {};
+    const line = createPolyline(points, String(style.strokeColor ?? "#8bb8ff"), Number(style.strokeOpacity ?? 1));
+    if (!line) return null;
+    const group = new THREE.Group();
+    group.add(line);
+    return group;
+  }
+
+  if ((data.type === "LABEL" || data.type === "TEXT") && data.position) {
+    const text = data.text?.plainText;
+    if (!text) return null;
+    const world = mapToWorld(data.position.x, data.position.y, frame);
+    const sprite = createTextSprite(text, "#f0f4ff");
+    sprite.position.set(world.x, 0.36, world.z);
+    return sprite;
+  }
+  return null;
+}
+
+function syncDrawingItems(items: Item[], frame: SceneFrame): void {
+  const candidates = items.filter((item) =>
+    item.visible !== false && (item.layer === "DRAWING" || item.layer === "RULER" || item.layer === "TEXT") &&
+    ["SHAPE", "LINE", "CURVE", "RULER", "LABEL", "TEXT"].includes(item.type),
+  );
+  const allowedIds = new Set(candidates.map((item) => item.id));
+  for (const [id, record] of drawingRecords) {
+    if (!allowedIds.has(id)) {
+      record.object.removeFromParent();
+      disposeObjectTree(record.object);
+      drawingRecords.delete(id);
+    }
+  }
+  for (const item of candidates) {
+    const signature = JSON.stringify(item);
+    const existing = drawingRecords.get(item.id);
+    if (existing?.signature === signature) continue;
+    if (existing) {
+      existing.object.removeFromParent();
+      disposeObjectTree(existing.object);
+      drawingRecords.delete(item.id);
+    }
+    const object = createDrawingObject(item, frame);
+    if (!object) continue;
+    object.userData.itemId = item.id;
+    drawingRoot.add(object);
+    drawingRecords.set(item.id, { object, signature });
+    const fireData = object.userData.fireEffect as FireEffect | undefined;
+    if (fireData) fireEffects.set(item.id, fireData);
+  }
+  for (const [id, effect] of fireEffects) {
+    if (!drawingRecords.has(id)) fireEffects.delete(id);
+    else if (drawingRecords.get(id)?.object.userData.fireEffect !== effect) {
+      const updated = drawingRecords.get(id)?.object.userData.fireEffect as FireEffect | undefined;
+      if (updated) fireEffects.set(id, updated);
+      else fireEffects.delete(id);
+    }
+  }
+}
+
+function updateFireEffects(time: number): void {
+  for (const effect of fireEffects.values()) {
+    for (const flame of effect.flames) {
+      const phase = Number(flame.userData.firePhase ?? 0);
+      const flicker = 0.88 + Math.sin(time * 7 + phase) * 0.12 + Math.sin(time * 13 + phase * 1.7) * 0.05;
+      flame.scale.y = flicker;
+      flame.rotation.y = Math.sin(time * 3 + phase) * 0.35;
+    }
+    effect.light.intensity = 1.25 + (Math.sin(time * 8 + effect.phase) + 1) * 0.28;
+  }
 }
 
 function clearWorld(): void {
