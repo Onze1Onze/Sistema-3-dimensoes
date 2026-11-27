@@ -1346,7 +1346,11 @@ async function createSceneDrawing(gesture: SceneToolGesture): Promise<void> {
     if (gesture.tool === "marker" || gesture.tool === "brush") {
       const rawPoints = filterSceneStrokePoints(gesture.points, 2);
       const points = await Promise.all(rawPoints.map(snapToolPoint));
-      if (points.length < 2) return;
+      const minimumPoints = gesture.tool === "brush" ? 3 : 2;
+      if (points.length < minimumPoints) {
+        if (gesture.tool === "brush") notify("O pincel preenchido precisa de pelo menos três pontos distintos.");
+        return;
+      }
       const curve = buildCurve()
         .points(points)
         .tension(0.2)

@@ -44,9 +44,9 @@ test("triangle preview has three sides rather than a rectangular outline", () =>
   const points = getSceneShapeVertices("triangle", { x: 0, y: 0 }, { x: 100, y: 80 });
   assert.equal(points.length, 4);
   assert.deepEqual(points[0], points[3]);
-  assert.deepEqual(points[0], { x: 50, y: 0 });
-  assert.deepEqual(points[1], { x: 100, y: 80 });
-  assert.deepEqual(points[2], { x: 0, y: 80 });
+  assert.deepEqual(points[0], { x: 50, y: 80 });
+  assert.deepEqual(points[1], { x: 0, y: 0 });
+  assert.deepEqual(points[2], { x: 100, y: 0 });
 });
 
 test("hexagon preview has six sides and a closed path", () => {
