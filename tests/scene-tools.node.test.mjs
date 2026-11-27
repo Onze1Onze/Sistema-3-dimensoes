@@ -39,9 +39,6 @@ test("evita formas com largura e altura zero", () => {
   });
 });
 
-import test from "node:test";
-import assert from "node:assert/strict";
-import { getSceneShapeVertices } from "../src/scene-tools.ts";
 
 test("triangle preview has three sides rather than a rectangular outline", () => {
   const points = getSceneShapeVertices("triangle", { x: 0, y: 0 }, { x: 100, y: 80 });
