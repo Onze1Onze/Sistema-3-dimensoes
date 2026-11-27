@@ -930,6 +930,389 @@ function getMapPositionAtPointer(event: PointerEvent, frame: SceneFrame): { x: n
   return Number.isFinite(position.x) && Number.isFinite(position.y) ? position : null;
 }
 
+function clearToolPreview(): void {
+  for (const child of [...previewRoot.children]) {
+    child.removeFromParent();
+    disposeObjectTree(child);
+  }
+}
+
+function updateToolSettingsPanel(): void {
+  const copy = TOOL_COPY[activeSceneTool];
+  if (toolSettingsTitle) toolSettingsTitle.textContent = copy.title;
+  if (toolSettingsDescription) toolSettingsDescription.textContent = copy.description;
+  if (drawingSettings) drawingSettings.hidden = !["marker", "line", "rectangle", "circle"].includes(activeSceneTool);
+  if (measureSettings) measureSettings.hidden = activeSceneTool !== "measure";
+  if (fireSettings) fireSettings.hidden = activeSceneTool !== "fire";
+  if (textSettings) textSettings.hidden = activeSceneTool !== "text";
+}
+
+function setActiveSceneTool(tool: SceneTool): void {
+  if (sceneToolGesture) {
+    sceneToolGesture = null;
+    clearToolPreview();
+    if (measureReadout) measureReadout.hidden = true;
+    controls.enabled = true;
+  }
+  endTokenDrag();
+  activeSceneTool = tool;
+  sceneToolButtons.forEach((button) => {
+    const active = button.dataset.sceneTool === tool;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  canvas?.classList.toggle("tool-active", !["select", "pan"].includes(tool));
+  canvas?.classList.toggle("tool-pan", tool === "pan");
+  updateToolSettingsPanel();
+}
+
+function readDrawingSettings(): { stroke: string; fill: string; width: number; opacity: number } {
+  return {
+    stroke: strokeColorInput?.value || "#8bb8ff",
+    fill: fillColorInput?.value || "#8bb8ff",
+    width: Math.max(1, Number(strokeWidthInput?.value ?? 3)),
+    opacity: THREE.MathUtils.clamp(Number(fillOpacityInput?.value ?? 25) / 100, 0, 1),
+  };
+}
+
+async function snapToolPoint(point: ScenePoint): Promise<ScenePoint> {
+  if (!snapGridInput?.checked) return point;
+  try {
+    return await OBR.scene.grid.snapPosition(point, 1, false, true);
+  } catch (error) {
+    console.warn("[Sistema 3D] Não foi possível ajustar o ponto à grade:", error);
+    return point;
+  }
+}
+
+function updateMeasureReadout(start: ScenePoint, end: ScenePoint, gesture: SceneToolGesture): void {
+  if (!measureReadout) return;
+  const requestId = ++gesture.requestId;
+  void OBR.scene.grid.getDistance(start, end).then((distance) => {
+    if (sceneToolGesture !== gesture || requestId !== gesture.requestId) return;
+    measureReadout.textContent = formatGridDistance(distance, gridScaleInfo);
+    measureReadout.hidden = false;
+  }).catch((error) => {
+    console.warn("[Sistema 3D] Falha ao medir distância:", error);
+    if (sceneToolGesture === gesture && measureReadout) {
+      measureReadout.textContent = "Não foi possível medir";
+      measureReadout.hidden = false;
+    }
+  });
+}
+
+function updateSceneToolPreview(gesture: SceneToolGesture): void {
+  clearToolPreview();
+  const settings = readDrawingSettings();
+  const points = gesture.tool === "marker"
+    ? filterSceneStrokePoints(gesture.points, 3)
+    : [gesture.start, gesture.current];
+  if (gesture.tool === "measure" || gesture.tool === "line" || gesture.tool === "marker") {
+    const line = createPolyline(points, gesture.tool === "measure" ? "#9bc3ff" : settings.stroke, 0.95);
+    if (line) previewRoot.add(line);
+    if (gesture.tool === "measure") updateMeasureReadout(gesture.start, gesture.current, gesture);
+    return;
+  }
+  const bounds = getSceneToolBounds(gesture.start, gesture.current);
+  const center = mapToWorld(bounds.center.x, bounds.center.y, currentFrame!);
+  const width = bounds.width * WORLD_UNITS_PER_PIXEL;
+  const height = bounds.height * WORLD_UNITS_PER_PIXEL;
+  const geometry = gesture.tool === "circle"
+    ? new THREE.CircleGeometry(Math.max(width, height) / 2, 48)
+    : new THREE.PlaneGeometry(width, height);
+  const mesh = new THREE.Mesh(
+    geometry,
+    new THREE.MeshBasicMaterial({ color: settings.fill, transparent: true, opacity: Math.max(0.08, settings.opacity), side: THREE.DoubleSide, depthWrite: false, toneMapped: false }),
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(center.x, 0.055, center.z);
+  previewRoot.add(mesh);
+  const outlinePoints = gesture.tool === "circle"
+    ? Array.from({ length: 49 }, (_, i) => ({
+        x: bounds.center.x + Math.cos((i / 48) * Math.PI * 2) * bounds.width / 2,
+        y: bounds.center.y + Math.sin((i / 48) * Math.PI * 2) * bounds.height / 2,
+      }))
+    : [
+        { x: gesture.start.x, y: gesture.start.y },
+        { x: gesture.current.x, y: gesture.start.y },
+        { x: gesture.current.x, y: gesture.current.y },
+        { x: gesture.start.x, y: gesture.current.y },
+        { x: gesture.start.x, y: gesture.start.y },
+      ];
+  const outline = createPolyline(outlinePoints, settings.stroke, 1);
+  if (outline) previewRoot.add(outline);
+}
+
+async function addSceneItems(items: Item[], permission: "DRAWING_CREATE" | "RULER_CREATE" | "TEXT_CREATE"): Promise<void> {
+  if (!await OBR.player.hasPermission(permission)) {
+    notify("Você não tem permissão para criar este tipo de item nesta cena.");
+    return;
+  }
+  try {
+    await OBR.scene.items.addItems(items);
+    lastCreatedSceneItemIds = items.map((item) => item.id);
+    if (toolUndoButton) toolUndoButton.disabled = false;
+    notify(items.length > 1 ? "Elementos adicionados à cena." : "Item adicionado à cena.");
+  } catch (error) {
+    console.error("[Sistema 3D] Falha ao criar item:", error);
+    notify("Não foi possível adicionar o item à cena.");
+  }
+}
+
+async function createSceneDrawing(gesture: SceneToolGesture): Promise<void> {
+  if (!currentFrame) return;
+  const settings = readDrawingSettings();
+  try {
+    if (gesture.tool === "measure") {
+      const [start, end, distance] = await Promise.all([
+        snapToolPoint(gesture.start),
+        snapToolPoint(gesture.current),
+        OBR.scene.grid.getDistance(gesture.start, gesture.current),
+      ]);
+      const measurement = formatGridDistance(distance, gridScaleInfo);
+      if (measurePersistInput?.checked) {
+        const ruler = buildRuler()
+          .startPosition(start)
+          .endPosition(end)
+          .measurement(measurement)
+          .variant("DASHED")
+          .name("Régua 3D")
+          .layer("RULER")
+          .build();
+        await addSceneItems([ruler], "RULER_CREATE");
+      } else {
+        if (measureReadout) {
+          measureReadout.textContent = measurement;
+          measureReadout.hidden = false;
+          window.setTimeout(() => {
+            if (measureReadout) measureReadout.hidden = true;
+          }, 1800);
+        }
+        notify(`Distância: ${measurement}`);
+      }
+      return;
+    }
+
+    const start = await snapToolPoint(gesture.start);
+    const end = await snapToolPoint(gesture.current);
+    if (gesture.tool === "line") {
+      const line = buildLine()
+        .startPosition(start)
+        .endPosition(end)
+        .strokeColor(settings.stroke)
+        .strokeOpacity(1)
+        .strokeWidth(settings.width)
+        .layer("DRAWING")
+        .name("Linha 3D")
+        .build();
+      await addSceneItems([line], "DRAWING_CREATE");
+      return;
+    }
+    if (gesture.tool === "marker") {
+      const rawPoints = filterSceneStrokePoints(gesture.points, 2);
+      const points = await Promise.all(rawPoints.map(snapToolPoint));
+      if (points.length < 2) return;
+      const curve = buildCurve()
+        .points(points)
+        .tension(0.2)
+        .closed(false)
+        .fillOpacity(0)
+        .strokeColor(settings.stroke)
+        .strokeOpacity(1)
+        .strokeWidth(settings.width)
+        .layer("DRAWING")
+        .name("Marcador 3D")
+        .build();
+      await addSceneItems([curve], "DRAWING_CREATE");
+      return;
+    }
+    if (gesture.tool === "rectangle" || gesture.tool === "circle") {
+      const bounds = getSceneToolBounds(start, end);
+      const shape = buildShape()
+        .position(bounds.center)
+        .width(bounds.width)
+        .height(gesture.tool === "circle" ? bounds.width : bounds.height)
+        .shapeType(gesture.tool === "circle" ? "CIRCLE" : "RECTANGLE")
+        .fillColor(settings.fill)
+        .fillOpacity(settings.opacity)
+        .strokeColor(settings.stroke)
+        .strokeOpacity(1)
+        .strokeWidth(settings.width)
+        .layer("DRAWING")
+        .name(gesture.tool === "circle" ? "Círculo 3D" : "Retângulo 3D")
+        .build();
+      await addSceneItems([shape], "DRAWING_CREATE");
+    }
+  } catch (error) {
+    console.error("[Sistema 3D] Falha ao finalizar ferramenta:", error);
+    notify("Não foi possível finalizar a ferramenta.");
+  }
+}
+
+async function createFireAt(point: ScenePoint): Promise<void> {
+  if (!currentFrame) return;
+  const snapped = await snapToolPoint(point);
+  const radiusCells = Math.max(1, Number(fireRadiusInput?.value ?? 2));
+  const radiusPixels = Math.max(1, gridDpi) * radiusCells;
+  const zone = buildShape()
+    .position(snapped)
+    .width(radiusPixels * 2)
+    .height(radiusPixels * 2)
+    .shapeType("CIRCLE")
+    .fillColor("#ff782e")
+    .fillOpacity(0.12)
+    .strokeColor("#ffb56d")
+    .strokeOpacity(0.9)
+    .strokeWidth(4)
+    .name("🔥 Área de fogo 3D")
+    .metadata({ [SCENE_TOOL_METADATA]: { kind: "fire", radiusPixels, version: 1 } })
+    .layer("DRAWING")
+    .build();
+  const marker = buildLabel()
+    .plainText("🔥 FOGO")
+    .position(snapped)
+    .backgroundColor("#3b1d15")
+    .backgroundOpacity(0.88)
+    .fillColor("#ffe1c4")
+    .fontSize(18)
+    .name("Marcador de fogo")
+    .layer("DRAWING")
+    .build();
+  await addSceneItems([zone, marker], "DRAWING_CREATE");
+}
+
+async function createSceneTextAt(point: ScenePoint): Promise<void> {
+  const value = sceneTextInput?.value.trim() ?? "";
+  if (!value) {
+    notify("Escreva o texto no painel de configurações antes de inseri-lo.");
+    return;
+  }
+  const position = await snapToolPoint(point);
+  const label = buildLabel()
+    .plainText(value)
+    .position(position)
+    .backgroundColor("#142033")
+    .backgroundOpacity(0.9)
+    .fillColor("#f1f5fb")
+    .fontSize(18)
+    .name("Anotação 3D")
+    .layer("DRAWING")
+    .build();
+  await addSceneItems([label], "DRAWING_CREATE");
+}
+
+function startSceneToolGesture(event: PointerEvent): void {
+  const frame = currentFrame;
+  if (!frame) return;
+  const point = getMapPositionAtPointer(event, frame);
+  if (!point) {
+    notify("Não foi possível identificar o ponto no tabuleiro.");
+    return;
+  }
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  try {
+    renderer.domElement.setPointerCapture(event.pointerId);
+  } catch (error) {
+    console.warn("[Sistema 3D] Captura de ponteiro indisponível:", error);
+  }
+  if (activeSceneTool === "fire") {
+    void createFireAt(point);
+    return;
+  }
+  if (activeSceneTool === "text") {
+    void createSceneTextAt(point);
+    return;
+  }
+  const gesture: SceneToolGesture = {
+    pointerId: event.pointerId,
+    tool: activeSceneTool,
+    start: point,
+    current: point,
+    points: [point],
+    requestId: 0,
+  };
+  sceneToolGesture = gesture;
+  controls.enabled = false;
+  updateSceneToolPreview(gesture);
+}
+
+function moveSceneToolGesture(event: PointerEvent): void {
+  const gesture = sceneToolGesture;
+  if (!gesture || gesture.pointerId !== event.pointerId) return;
+  const point = getMapPositionAtPointer(event, currentFrame!);
+  if (!point) return;
+  gesture.current = point;
+  if (gesture.tool === "marker") {
+    const last = gesture.points[gesture.points.length - 1];
+    if (!last || Math.hypot(point.x - last.x, point.y - last.y) >= 3) gesture.points.push(point);
+  }
+  updateSceneToolPreview(gesture);
+}
+
+function endSceneToolGesture(event: PointerEvent, cancelled = false): void {
+  const gesture = sceneToolGesture;
+  if (!gesture || gesture.pointerId !== event.pointerId) return;
+  const finalPoint = getMapPositionAtPointer(event, currentFrame!);
+  if (finalPoint) {
+    gesture.current = finalPoint;
+    if (gesture.tool === "marker") gesture.points.push(finalPoint);
+  }
+  sceneToolGesture = null;
+  controls.enabled = true;
+  clearToolPreview();
+  if (gesture.tool !== "measure" && measureReadout) measureReadout.hidden = true;
+  if (cancelled) {
+    if (measureReadout) measureReadout.hidden = true;
+    return;
+  }
+  void createSceneDrawing(gesture);
+}
+
+function openToolSettings(): void {
+  if (toolSettingsPanel) toolSettingsPanel.hidden = false;
+  if (integrationsPanel) integrationsPanel.hidden = true;
+  updateToolSettingsPanel();
+}
+
+function closeToolPanels(): void {
+  if (toolSettingsPanel) toolSettingsPanel.hidden = true;
+  if (integrationsPanel) integrationsPanel.hidden = true;
+}
+
+async function undoLastSceneToolItem(): Promise<void> {
+  if (lastCreatedSceneItemIds.length === 0) {
+    notify("Não há item recente para desfazer.");
+    return;
+  }
+  try {
+    const items = await OBR.scene.items.getItems(lastCreatedSceneItemIds);
+    if (items.length === 0) {
+      lastCreatedSceneItemIds = [];
+      if (toolUndoButton) toolUndoButton.disabled = true;
+      return;
+    }
+    const permissionByLayer: Record<string, string> = {
+      DRAWING: "DRAWING_DELETE",
+      RULER: "RULER_DELETE",
+      TEXT: "TEXT_DELETE",
+    };
+    const permissions = [...new Set(items.map((item) => permissionByLayer[item.layer]).filter(Boolean))];
+    const results = await Promise.all(permissions.map((permission) => OBR.player.hasPermission(permission as "DRAWING_DELETE" | "RULER_DELETE" | "TEXT_DELETE")));
+    if (results.some((allowed) => !allowed)) {
+      notify("Você não tem permissão para desfazer a criação desses itens.");
+      return;
+    }
+    await OBR.scene.items.deleteItems(items.map((item) => item.id));
+    lastCreatedSceneItemIds = [];
+    if (toolUndoButton) toolUndoButton.disabled = true;
+    notify("Última criação desfeita.");
+  } catch (error) {
+    console.error("[Sistema 3D] Falha ao desfazer criação:", error);
+    notify("Não foi possível desfazer a última criação.");
+  }
+}
+
 type TokenPermission = "CHARACTER_UPDATE" | "CHARACTER_DELETE" | "MOUNT_UPDATE" | "MOUNT_DELETE";
 
 function getTokenPermission(item: Item, operation: "UPDATE" | "DELETE"): TokenPermission {
