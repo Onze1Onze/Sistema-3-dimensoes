@@ -22,7 +22,7 @@ Implementado nesta primeira entrega:
 - Arraste direto com toque, caneta ou mouse sobre a miniatura no canvas 3D, com captura do ponteiro e atualização contínua da posição no Owlbear.
 - Arraste conjunto de tokens selecionados, mantendo posições relativas e deslocando também anexos/subanexos da hierarquia.
 - Barra contextual 3D para girar, redimensionar, bloquear/desbloquear, ocultar/mostrar (somente mestre) e excluir tokens selecionados.
-- Dock de ferramentas no espaço 3D com seleção, navegação da câmera, medição, marcador livre, linha, retângulo, círculo, fogo visual 3D e anotações de texto.
+- Dock de ferramentas no espaço 3D com seleção, navegação da câmera, medição, marcador livre, pincel preenchido, linha, retângulo, círculo, triângulo, hexágono, fogo visual 3D e anotações de texto.
 - Medição pelo método oficial `OBR.scene.grid.getDistance`, respeitando escala e fórmula de distância configuradas na cena do Owlbear.
 - Réguas persistentes como itens nativos da camada `RULER`; medições temporárias aparecem como sobreposição no espaço 3D.
 - Marcadores, linhas, formas, rótulos e réguas gravados nas camadas nativas do Owlbear e representados no espaço 3D.
