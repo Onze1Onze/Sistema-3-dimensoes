@@ -524,20 +524,6 @@ function refreshTokenToolbar(): void {
   }
 }
 
-async function selectTokenFrom3D(itemId: string, event: PointerEvent): Promise<{ ids: string[]; toggledOff: boolean }> {
-  const current = (await OBR.player.getSelection()) ?? [];
-  const toggle = event.ctrlKey || event.metaKey;
-  const wasSelected = current.includes(itemId);
-  const next = !event.shiftKey && !toggle && wasSelected
-    ? current
-    : nextTokenSelection(current, itemId, { additive: event.shiftKey, toggle });
-
-  if (next.length === 0) await OBR.player.deselect();
-  else await OBR.player.select(next, true);
-  syncSelectedTokens(next);
-  return { ids: next, toggledOff: toggle && wasSelected };
-}
-
 function getMapPositionAtPointer(event: PointerEvent, frame: SceneFrame): { x: number; y: number } | null {
   const rect = renderer.domElement.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return null;
@@ -671,7 +657,7 @@ async function beginTokenDrag(record: RenderRecord, event: PointerEvent, selecte
   try {
     const selectedItems = selectedIds
       .map((id) => currentItems.find((item) => item.id === id))
-      .filter((item): item is Item => Boolean(item) &&
+      .filter((item): item is Item => item !== undefined &&
         (item.layer === "CHARACTER" || item.layer === "MOUNT") &&
         item.type === "IMAGE" && "image" in item);
     const movableItems: Item[] = [];
