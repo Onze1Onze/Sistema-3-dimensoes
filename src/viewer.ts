@@ -918,6 +918,20 @@ if (!OBR.isAvailable) {
   showMessage("Abra pelo Owlbear Rodeo", "Este visualizador precisa ser aberto pelo botão da extensão dentro de uma sala do Owlbear Rodeo.");
 } else {
   OBR.onReady(() => {
+    // A seleção do 3D e a seleção normal do Owlbear são a mesma seleção do jogador.
+    unsubscribePlayer = OBR.player.onChange((player) => {
+      syncSelectedTokens(player.selection ?? []);
+    });
+    void OBR.player.getSelection().then((ids) => syncSelectedTokens(ids ?? [])).catch((error) => {
+      console.warn("[Sistema 3D] Não foi possível ler a seleção inicial:", error);
+    });
+    void OBR.player.getRole().then((role) => {
+      currentPlayerRole = role;
+      refreshTokenToolbar();
+    }).catch((error) => {
+      console.warn("[Sistema 3D] Não foi possível identificar o papel do jogador:", error);
+    });
+
     // Instale os listeners antes da consulta inicial. Assim, uma cena que
     // terminar de carregar durante loadScene() não fica sem atualização.
     unsubscribeReady = OBR.scene.onReadyChange((ready: boolean) => {
@@ -956,6 +970,7 @@ window.addEventListener("pagehide", () => {
   unsubscribeItems?.();
   unsubscribeFog?.();
   unsubscribeReady?.();
+  unsubscribePlayer?.();
   controls.dispose();
   renderer.dispose();
   for (const texture of textures.values()) texture.dispose();
