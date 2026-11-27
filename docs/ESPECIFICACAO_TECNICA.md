@@ -1,10 +1,12 @@
 # Especificação técnica — Owlbear 3D
 
-**Versão do produto:** 1.0.1  
+**Versão do produto:** 1.1.0  
 **Estado:** implementação em evolução; este documento registra a arquitetura e as limitações conhecidas.  
 **Objetivo:** abrir uma visualização tridimensional da cena atual do Owlbear Rodeo, usando o Owlbear como fonte oficial dos dados e um renderizador Three.js independente.
 
-> O arraste de miniaturas no plano do tabuleiro está implementado para toque, caneta e mouse. A versão 1.0.1 adia o início da interação até o gesto ultrapassar o limiar de movimento, paraleliza as verificações de permissão e preserva a última posição quando o ponteiro é liberado antes da resposta do SDK. A representação das miniaturas continua sendo 2.5D (billboards verticais); elevação vertical livre, modelos volumétricos e movimento entre andares não fazem parte desta versão.
+> O arraste de miniaturas no plano do tabuleiro está implementado para toque, caneta e mouse. A representação das miniaturas continua sendo 2.5D (billboards verticais); elevação vertical livre, modelos volumétricos e movimento entre andares não fazem parte desta versão.
+>
+> A versão 1.1.0 adiciona ferramentas no próprio modal 3D: seleção, navegação, medição por `OBR.scene.grid.getDistance`, marcador livre, linha, retângulo, círculo, texto e fogo visual. As ferramentas de desenho, anotação e régua usam builders oficiais e criam itens nas camadas nativas do Owlbear. O fogo é representado por um item de área com metadata namespaced e partículas locais no renderizador 3D; ele não cria um item `LIGHT` e não participa da iluminação/Fog of War. Ferramentas e painéis de extensões externas não podem ser enumerados nem incorporados automaticamente porque o SDK não expõe uma API pública para isso.
 
 ---
 
