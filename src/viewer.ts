@@ -154,7 +154,7 @@ interface PendingTokenDrag {
   startPosition: { x: number; y: number };
 }
 
-type SceneTool = "select" | "pan" | "measure" | "marker" | "line" | "rectangle" | "circle" | "fire" | "text";
+type SceneTool = "select" | "pan" | "measure" | "marker" | "brush" | "line" | "rectangle" | "circle" | "triangle" | "hexagon" | "fire" | "text";
 
 interface SceneToolGesture {
   pointerId: number;
@@ -181,10 +181,13 @@ const TOOL_COPY: Record<SceneTool, { title: string; description: string }> = {
   select: { title: "Selecionar", description: "Selecione e mova miniaturas" },
   pan: { title: "Câmera", description: "Arraste o espaço para navegar" },
   measure: { title: "Medir distância", description: "Arraste entre dois pontos do tabuleiro" },
-  marker: { title: "Marcador", description: "Desenhe livremente sobre o mapa" },
+  marker: { title: "Marcador", description: "Desenhe uma linha livre sobre o mapa" },
+  brush: { title: "Pincel", description: "Desenhe uma área livre preenchida" },
   line: { title: "Linha", description: "Arraste para desenhar uma linha" },
   rectangle: { title: "Retângulo", description: "Arraste para definir uma área retangular" },
   circle: { title: "Círculo", description: "Arraste para definir uma área circular" },
+  triangle: { title: "Triângulo", description: "Arraste para desenhar um triângulo" },
+  hexagon: { title: "Hexágono", description: "Arraste para desenhar um hexágono" },
   fire: { title: "Fogo 3D", description: "Clique no chão para criar uma chama" },
   text: { title: "Texto", description: "Clique no chão para inserir uma anotação" },
 };
@@ -982,7 +985,7 @@ function updateToolSettingsPanel(): void {
   const copy = TOOL_COPY[activeSceneTool];
   if (toolSettingsTitle) toolSettingsTitle.textContent = copy.title;
   if (toolSettingsDescription) toolSettingsDescription.textContent = copy.description;
-  if (drawingSettings) drawingSettings.hidden = !["marker", "line", "rectangle", "circle"].includes(activeSceneTool);
+  if (drawingSettings) drawingSettings.hidden = !["marker", "brush", "line", "rectangle", "circle", "triangle", "hexagon"].includes(activeSceneTool);
   if (measureSettings) measureSettings.hidden = activeSceneTool !== "measure";
   if (fireSettings) fireSettings.hidden = activeSceneTool !== "fire";
   if (textSettings) textSettings.hidden = activeSceneTool !== "text";
@@ -1055,7 +1058,7 @@ function updateSceneToolPreview(gesture: SceneToolGesture): void {
   const points = gesture.tool === "marker"
     ? filterSceneStrokePoints(gesture.points, 3)
     : [gesture.start, gesture.current];
-  if (gesture.tool === "measure" || gesture.tool === "line" || gesture.tool === "marker") {
+  if (gesture.tool === "measure" || gesture.tool === "line" || gesture.tool === "marker" || gesture.tool === "brush") {
     const line = createPolyline(points, gesture.tool === "measure" ? "#9bc3ff" : settings.stroke, 0.95);
     if (line) previewRoot.add(line);
     if (gesture.tool === "measure") updateMeasureReadout(gesture.start, gesture.current, gesture);
@@ -1156,39 +1159,45 @@ async function createSceneDrawing(gesture: SceneToolGesture): Promise<void> {
       await addSceneItems([line], "DRAWING_CREATE");
       return;
     }
-    if (gesture.tool === "marker") {
+    if (gesture.tool === "marker" || gesture.tool === "brush") {
       const rawPoints = filterSceneStrokePoints(gesture.points, 2);
       const points = await Promise.all(rawPoints.map(snapToolPoint));
       if (points.length < 2) return;
       const curve = buildCurve()
         .points(points)
         .tension(0.2)
-        .closed(false)
-        .fillOpacity(0)
+        .closed(gesture.tool === "brush")
+        .fillColor(settings.fill)
+        .fillOpacity(gesture.tool === "brush" ? settings.opacity : 0)
         .strokeColor(settings.stroke)
         .strokeOpacity(1)
         .strokeWidth(settings.width)
         .layer("DRAWING")
-        .name("Marcador 3D")
+        .name(gesture.tool === "brush" ? "Pincel 3D" : "Marcador 3D")
         .build();
       await addSceneItems([curve], "DRAWING_CREATE");
       return;
     }
-    if (gesture.tool === "rectangle" || gesture.tool === "circle") {
+    if (["rectangle", "circle", "triangle", "hexagon"].includes(gesture.tool)) {
       const bounds = getSceneToolBounds(start, end);
       const circleDiameter = Math.max(bounds.width, bounds.height);
+      const shapeType = gesture.tool === "circle" ? "CIRCLE"
+        : gesture.tool === "triangle" ? "TRIANGLE"
+        : gesture.tool === "hexagon" ? "HEXAGON"
+        : "RECTANGLE";
+      const dimension = gesture.tool === "circle" ? circleDiameter : null;
       const shape = buildShape()
         .position(bounds.center)
-        .width(gesture.tool === "circle" ? circleDiameter : bounds.width)
-        .height(gesture.tool === "circle" ? circleDiameter : bounds.height)
-        .shapeType(gesture.tool === "circle" ? "CIRCLE" : "RECTANGLE")
+        .width(dimension ?? bounds.width)
+        .height(dimension ?? bounds.height)
+        .shapeType(shapeType)
         .fillColor(settings.fill)
         .fillOpacity(settings.opacity)
         .strokeColor(settings.stroke)
         .strokeOpacity(1)
         .strokeWidth(settings.width)
         .layer("DRAWING")
-        .name(gesture.tool === "circle" ? "Círculo 3D" : "Retângulo 3D")
+        .name(`${TOOL_COPY[gesture.tool].title} 3D`)
         .build();
       await addSceneItems([shape], "DRAWING_CREATE");
     }
