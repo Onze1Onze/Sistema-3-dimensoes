@@ -2,9 +2,9 @@
 
 Extensão do Owlbear Rodeo que abre uma visualização tridimensional da cena atual usando Three.js. O Owlbear continua sendo a fonte de verdade para mapas, tokens, desenhos, réguas, textos e permissões.
 
-## Estado da versão 1.1.0
+## Estado da versão 1.1.1
 
-A versão 1.1.0 adiciona um conjunto de ferramentas integrado ao visualizador 3D. As ações de desenho e medição criam itens nativos na cena do Owlbear, mantendo a compatibilidade com o modo 2D. O painel contextual oferece cores, espessura, opacidade, ajuste à grade, régua persistente e raio de fogo.
+A versão 1.1.1 adiciona um conjunto de ferramentas integrado ao visualizador 3D. As ações de desenho e medição criam itens nativos na cena do Owlbear, mantendo a compatibilidade com o modo 2D. O painel contextual oferece cores, espessura, opacidade, ajuste à grade, régua persistente e raio de fogo.
 
 Leia também a [especificação técnica completa](docs/ESPECIFICACAO_TECNICA.md) e o [roteiro de desenvolvimento](docs/ROADMAP.md).
 
@@ -28,8 +28,11 @@ Implementado nesta primeira entrega:
 - Marcadores, linhas, formas, rótulos e réguas gravados nas camadas nativas do Owlbear e representados no espaço 3D.
 - Fogo 3D com área circular e rótulo compartilhados pela cena, além de chamas animadas no renderizador 3D. Não cria itens `LIGHT` nem altera a visão/Fog of War do Owlbear.
 - Painel de configurações por ferramenta, com cor do traço/preenchimento, espessura, opacidade, ajuste à grade, escala de fogo e desfazer da última criação.
-- Renderização 3D de itens compatíveis das camadas `DRAWING`, `RULER` e `TEXT`.
-- Verificação das permissões de atualização/exclusão antes de alterar itens da cena.
+- Renderização 3D de itens compatíveis das camadas `DRAWING`, `RULER` e `TEXT`, com espessura de traço consistente no WebGL.
+- Normalização do tamanho das imagens pelo DPI da imagem e pelo DPI da grade da cena.
+- Pré-visualização geométrica fiel de retângulos, círculos, triângulos, hexágonos e pincel preenchido.
+- Carregamento compartilhado de texturas iguais, movimentação da câmera independente da taxa de quadros e descarte completo dos recursos ao fechar o modal.
+- Verificação das permissões de atualização/exclusão, incluindo a regra `CHARACTER_OWNER_ONLY` e os anexos dos tokens.
 - Atualização visual a partir de `OBR.scene.items.onChange`.
 - Bloqueio preventivo da visualização em cenas com Fog of War preenchido ou itens visíveis nas camada `FOG` ou itens do tipo `WALL` e `LIGHT`.
 - Testes unitários das transformações de coordenadas e dimensionamento.
@@ -57,7 +60,7 @@ Habilite a extensão em uma sala e clique em **Sistema 3D**.
 
 ## Compilar e testar
 
-A versão publicada é identificada como **1.1.0** no package.json, no manifest.json e na interface inicial. O CI verifica que esses identificadores permanecem consistentes.
+A versão publicada é identificada como **1.1.1** no package.json, no manifest.json e na interface inicial. O CI verifica que esses identificadores permanecem consistentes.
 
 ```bash
 npm test

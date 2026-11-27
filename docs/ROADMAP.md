@@ -1,6 +1,20 @@
 # Roteiro de desenvolvimento
 
-## Versão 1.1.0 — Ferramentas integradas ao espaço 3D
+## Versão 1.1.1 — Correções de precisão e estabilidade
+
+- [x] Normalizar dimensões de imagens pelo DPI da cena e DPI individual da imagem.
+- [x] Tornar as prévias de triângulos, hexágonos, círculos e pincel congruentes com a geometria criada.
+- [x] Renderizar traços com espessura configurável usando linhas compatíveis com WebGL.
+- [x] Compartilhar requisições de textura e eliminar carregamentos duplicados simultâneos.
+- [x] Tornar a velocidade de câmera independente da taxa de quadros e restaurar o atalho R.
+- [x] Evitar consultas de Fog/role em toda atualização de movimento de token.
+- [x] Respeitar CHARACTER_OWNER_ONLY e permissões de anexos durante a exclusão.
+- [x] Cancelar criações/edições assíncronas quando a cena mudar.
+- [x] Encerrar animação, listeners, geometrias, materiais e texturas ao fechar o modal.
+- [x] Ajustar anotações para quebrar linhas sem truncar o texto após 40 caracteres.
+- [x] Adicionar testes de DPI e geometria das prévias.
+
+## Versão 1.1.1 — Ferramentas integradas ao espaço 3D
 
 - [x] Dock lateral de ferramentas no modal 3D
 - [x] Seleção e navegação da câmera separadas por modo

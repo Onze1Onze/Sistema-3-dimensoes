@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { filterSceneStrokePoints, formatGridDistance, getSceneToolBounds } from "../src/scene-tools.ts";
+import { filterSceneStrokePoints, formatGridDistance, getSceneToolBounds, getSceneShapeVertices } from "../src/scene-tools.ts";
 
 test("formata distância usando a escala nativa da grade", () => {
   assert.equal(formatGridDistance(3, { multiplier: 5, unit: "ft", digits: 0 }), "15 ft");
@@ -37,4 +37,37 @@ test("evita formas com largura e altura zero", () => {
     width: 1,
     height: 1,
   });
+});
+
+import test from "node:test";
+import assert from "node:assert/strict";
+import { getSceneShapeVertices } from "../src/scene-tools.ts";
+
+test("triangle preview has three sides rather than a rectangular outline", () => {
+  const points = getSceneShapeVertices("triangle", { x: 0, y: 0 }, { x: 100, y: 80 });
+  assert.equal(points.length, 4);
+  assert.deepEqual(points[0], points[3]);
+  assert.deepEqual(points[0], { x: 50, y: 0 });
+  assert.deepEqual(points[1], { x: 100, y: 80 });
+  assert.deepEqual(points[2], { x: 0, y: 80 });
+});
+
+test("hexagon preview has six sides and a closed path", () => {
+  const points = getSceneShapeVertices("hexagon", { x: 10, y: 20 }, { x: 110, y: 80 });
+  assert.equal(points.length, 7);
+  assert.deepEqual(points[0], points[6]);
+});
+
+test("circle preview is truly circular even when its drag bounds are rectangular", () => {
+  const points = getSceneShapeVertices("circle", { x: 0, y: 0 }, { x: 100, y: 40 }, 24);
+  assert.equal(points.length, 25);
+  const center = { x: 50, y: 20 };
+  const radii = points.slice(0, -1).map((point) => Math.hypot(point.x - center.x, point.y - center.y));
+  assert.ok(radii.every((radius) => Math.abs(radius - 50) < 1e-8));
+});
+
+test("rectangle preview has four corners and closes its path", () => {
+  const points = getSceneShapeVertices("rectangle", { x: 0, y: 0 }, { x: 100, y: 60 });
+  assert.equal(points.length, 5);
+  assert.deepEqual(points[0], points[4]);
 });

@@ -49,3 +49,13 @@ export function translateTokenPositions(
 export function normalizeRotation(degrees: number): number {
   return ((degrees % 360) + 360) % 360;
 }
+
+/** Applies Owlbear's CHARACTER_OWNER_ONLY rule before attempting an update. */
+export function canModifyCharacter(
+  role: "GM" | "PLAYER",
+  ownerOnly: boolean,
+  itemOwnerId: string,
+  playerId: string,
+): boolean {
+  return role === "GM" || !ownerOnly || itemOwnerId === playerId;
+}

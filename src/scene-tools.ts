@@ -9,6 +9,59 @@ export interface GridScaleInfo {
   digits: number;
 }
 
+export type SceneShapeTool = "rectangle" | "circle" | "triangle" | "hexagon";
+
+/** Returns the actual map-space outline used by both shape previews and tests. */
+export function getSceneShapeVertices(
+  tool: SceneShapeTool,
+  start: ScenePoint,
+  end: ScenePoint,
+  requestedSegments = 48,
+): ScenePoint[] {
+  const { center, width, height } = getSceneToolBounds(start, end);
+
+  if (tool === "rectangle") {
+    return [
+      { x: center.x - width / 2, y: center.y - height / 2 },
+      { x: center.x + width / 2, y: center.y - height / 2 },
+      { x: center.x + width / 2, y: center.y + height / 2 },
+      { x: center.x - width / 2, y: center.y + height / 2 },
+      { x: center.x - width / 2, y: center.y - height / 2 },
+    ];
+  }
+
+  if (tool === "triangle") {
+    return [
+      { x: center.x, y: center.y - height / 2 },
+      { x: center.x + width / 2, y: center.y + height / 2 },
+      { x: center.x - width / 2, y: center.y + height / 2 },
+      { x: center.x, y: center.y - height / 2 },
+    ];
+  }
+
+  if (tool === "hexagon") {
+    const vertices = Array.from({ length: 6 }, (_, index) => {
+      const angle = (index / 6) * Math.PI * 2;
+      return {
+        x: center.x + Math.cos(angle) * width / 2,
+        y: center.y + Math.sin(angle) * height / 2,
+      };
+    });
+    vertices.push({ ...vertices[0] });
+    return vertices;
+  }
+
+  const segments = Math.max(12, Math.min(128, Math.floor(requestedSegments)));
+  const radius = Math.max(width, height) / 2;
+  return Array.from({ length: segments + 1 }, (_, index) => {
+    const angle = (index / segments) * Math.PI * 2;
+    return {
+      x: center.x + Math.cos(angle) * radius,
+      y: center.y + Math.sin(angle) * radius,
+    };
+  });
+}
+
 export function formatGridDistance(distance: number, scale?: GridScaleInfo | null): string {
   if (!Number.isFinite(distance)) return "—";
   const multiplier = scale && Number.isFinite(scale.multiplier) && scale.multiplier > 0

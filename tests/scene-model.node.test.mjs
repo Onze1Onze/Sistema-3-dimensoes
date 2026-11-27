@@ -68,7 +68,7 @@ test('manifest é JSON válido e aponta para a página inicial', async () => {
   assert.equal(manifest.action.popover, 'https://onze1onze.github.io/Sistema-3-dimensoes/index.html');
   assert.equal(manifest.icon, 'https://onze1onze.github.io/Sistema-3-dimensoes/icon.svg');
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(manifest.version, '1.1.0');
+  assert.equal(manifest.version, '1.1.1');
   assert.equal(packageJson.version, manifest.version);
   assert.match(manifest.icon, /^https:\/\/onze1onze\.github\.io\//);
 });

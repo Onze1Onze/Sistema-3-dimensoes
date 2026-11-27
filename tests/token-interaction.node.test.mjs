@@ -4,6 +4,7 @@ import {
   nextTokenSelection,
   normalizeRotation,
   translateTokenPositions,
+  canModifyCharacter,
 } from "../src/token-interaction.ts";
 
 test("seleciona apenas o token clicado sem modificadores", () => {
@@ -62,4 +63,11 @@ test("normaliza rotações positivas e negativas", () => {
   assert.equal(normalizeRotation(375), 15);
   assert.equal(normalizeRotation(-15), 345);
   assert.equal(normalizeRotation(720), 0);
+});
+
+test("respects Owlbear character ownership when Owner Only is enabled", () => {
+  assert.equal(canModifyCharacter("PLAYER", true, "player-a", "player-a"), true);
+  assert.equal(canModifyCharacter("PLAYER", true, "player-b", "player-a"), false);
+  assert.equal(canModifyCharacter("PLAYER", false, "player-b", "player-a"), true);
+  assert.equal(canModifyCharacter("GM", true, "player-b", "player-a"), true);
 });
