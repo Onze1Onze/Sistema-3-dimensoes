@@ -39,6 +39,35 @@ test("cancels a gesture and ignores future pointer movement", () => {
   assert.deepEqual(gesture.current, { clientX: 10, clientY: 10 });
 });
 
+test("does not request an interaction before the movement threshold", () => {
+  const gesture = new PointerDragGesture(15, { clientX: 10, clientY: 10 });
+  gesture.move({ clientX: 12, clientY: 11 });
+  assert.equal(gesture.requestStart(), false);
+  assert.equal(gesture.startRequested, false);
+});
+
+test("requests the interaction once after meaningful movement", () => {
+  const gesture = new PointerDragGesture(16, { clientX: 10, clientY: 10 });
+  gesture.move({ clientX: 14, clientY: 10 });
+  assert.equal(gesture.requestStart(), true);
+  assert.equal(gesture.requestStart(), false);
+  assert.equal(gesture.startRequested, true);
+});
+
+test("can request startup after release when the final point crossed the threshold", () => {
+  const gesture = new PointerDragGesture(17, { clientX: 10, clientY: 10 });
+  gesture.release({ clientX: 20, clientY: 25 });
+  assert.equal(gesture.requestStart(), true);
+  assert.equal(gesture.requestStart(), false);
+});
+
+test("does not request startup after cancellation", () => {
+  const gesture = new PointerDragGesture(18, { clientX: 10, clientY: 10 });
+  gesture.move({ clientX: 20, clientY: 10 });
+  gesture.cancel();
+  assert.equal(gesture.requestStart(), false);
+});
+
 test("does not overwrite the last point after pointer release", () => {
   const gesture = new PointerDragGesture(9, { clientX: 1, clientY: 2 });
   gesture.release({ clientX: 15, clientY: 22 });
