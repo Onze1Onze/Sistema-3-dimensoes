@@ -1,5 +1,18 @@
 # Roteiro de desenvolvimento
 
+## Versão 1.1.0 — Ferramentas integradas ao espaço 3D
+
+- [x] Dock lateral de ferramentas no modal 3D
+- [x] Seleção e navegação da câmera separadas por modo
+- [x] Medição temporária e régua persistente usando a grade do Owlbear
+- [x] Marcador livre, linha, retângulo e círculo com configurações de estilo
+- [x] Inserção de anotações de texto na cena
+- [x] Criação de área de fogo compartilhada com chamas animadas no visualizador 3D
+- [x] Renderização de itens compatíveis das camadas DRAWING, RULER e TEXT
+- [x] Painel de integrações explicando os limites de extensões de terceiros
+- [x] Histórico curto para desfazer a última criação
+
+
 ## Versão 1.0.1 — Estabilização de interação
 
 - [x] Arraste direto de miniaturas com toque, caneta e mouse no canvas 3D
