@@ -314,17 +314,16 @@ A decisão principal é usar `OBR.interaction`, não um canal próprio de mensag
 
 ### Arraste iniciado no 3D
 
-1. O Raycaster detecta a miniatura sob o cursor.
-2. O sistema confirma que o item não está bloqueado e que o usuário tem permissão para movê-lo.
-3. O visualizador inicia `OBR.interaction.startItemInteraction` usando o item real do Owlbear como estado-base.
-4. A seleção utiliza uma geometria invisível orientada integralmente pela câmera, independente do billboard visual.
-4. O arraste mantém um plano de referência na profundidade inicial do token e projeta o deslocamento da tela sobre eixos horizontais normalizados, convertendo o resultado para coordenadas do Owlbear.
-5. A interseção com o plano é calculada à frente do raio; raios paralelos ou planos atrás da câmera são rejeitados.
-6. A captura do ponteiro permanece ativa até o encerramento ou cancelamento do gesto.
-5. A posição 3D é convertida para coordenadas 2D do Owlbear.
-6. A função `update` da interação atualiza somente `position` do item.
-7. Ao soltar o botão, chamar `stop`.
-8. Se o arraste for cancelado ou a janela perder foco, encerrar a interação com segurança.
+1. A ferramenta ativa precisa ser **Selecionar**; o Raycaster verifica a área de seleção invisível do token, orientada integralmente pela câmera e independente do billboard visual.
+2. O ponteiro é projetado em um plano na profundidade inicial da miniatura. Esse plano permanece estável durante o gesto, mesmo quando o raio não alcança o chão.
+3. O deslocamento nos eixos da câmera é convertido para eixos horizontais normalizados e depois para coordenadas 2D do Owlbear.
+4. O sistema valida o bloqueio, a permissão de atualização da camada e a regra `CHARACTER_OWNER_ONLY` para cada token selecionado.
+5. O visualizador consulta anexos e subanexos e valida permissões e bloqueios de cada item antes de permitir o movimento do grupo.
+6. O visualizador inicia `OBR.interaction.startItemInteraction` usando os itens reais do Owlbear como estado-base.
+7. A função `update` da interação atualiza somente `position` dos itens incluídos no grupo.
+8. Ao soltar o ponteiro, chamar `stop`; em caso de cancelamento, perda de foco ou fechamento do modal, encerrar a interação com segurança.
+
+Interseções paralelas ou atrás do raio são rejeitadas. A seleção invisível não altera o que é renderizado e não grava itens extras na cena. Quando uma validação falha, a interface informa o token/anexo e a causa, sem ignorar silenciosamente a restrição do Owlbear.
 
 O SDK transmite snapshots e interpola o movimento para outros jogadores. Interações expiram após 30 segundos; o visualizador deve sempre terminar a interação ao soltar, cancelar ou perder o foco.
 
