@@ -1,5 +1,12 @@
 # Roteiro de desenvolvimento
 
+## Versão 1.2.1 — Correção de posicionamento e renderização de tokens
+
+- [x] Corrigir a orientação do eixo vertical entre coordenadas do Owlbear e o chão 3D.
+- [x] Manter a transformação inversa consistente para que o arraste retorne à posição 2D correta.
+- [x] Renderizar miniaturas com material não iluminado, preservando cores e transparência.
+- [x] Adicionar testes de regressão para alinhamento topo/base do mapa e material dos tokens.
+
 ## Versão 1.2.0 — Redesign completo da interface
 
 - [x] Substituir o painel inicial por uma entrada editorial, compacta e orientada ao estado real da cena.

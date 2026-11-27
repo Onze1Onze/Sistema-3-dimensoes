@@ -23,6 +23,7 @@ import {
   type SceneFrame,
   WORLD_UNITS_PER_PIXEL,
 } from "./scene-model";
+import { createImageMaterial } from "./image-material";
 import {
   canModifyCharacter,
   nextTokenSelection,
@@ -137,7 +138,7 @@ interface RenderRecord {
   url: string;
   width: number;
   height: number;
-  material: THREE.MeshStandardMaterial;
+  material: THREE.MeshStandardMaterial | THREE.MeshBasicMaterial;
   itemRotation: number;
   selectionRing?: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
 }
@@ -344,15 +345,7 @@ function getTexture(url: string, onLoad: (texture: THREE.Texture) => void, onErr
 function createRecord(item: OBRImage, kind: "map" | "token" | "prop"): RenderRecord {
   const worldSize = getImageWorldSize(item, gridDpi);
   const geometry = new THREE.PlaneGeometry(worldSize.width, worldSize.height);
-  const material = new THREE.MeshStandardMaterial({
-    map: placeholderTexture,
-    transparent: kind === "token",
-    alphaTest: kind === "token" ? 0.08 : 0,
-    roughness: 0.95,
-    metalness: 0,
-    side: THREE.DoubleSide,
-    depthWrite: kind !== "token",
-  });
+  const material = createImageMaterial(kind, placeholderTexture);
   const mesh = new THREE.Mesh(geometry, material);
   mesh.userData.itemId = item.id;
   const object = new THREE.Group();

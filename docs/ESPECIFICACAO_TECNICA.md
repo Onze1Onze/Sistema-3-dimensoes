@@ -218,7 +218,7 @@ Esta é uma das partes mais importantes do projeto. Um erro aqui faz os tokens s
 - Owlbear trabalha em coordenadas 2D: `x` e `y`, em pixels de mundo.
 - Three.js trabalhará com `x`, `y` e `z`.
 - `x` do Owlbear vira `x` no Three.js.
-- `y` do Owlbear vira `-z` no Three.js, para que o eixo vertical do mapa corresponda ao eixo de profundidade do chão.
+- `y` do Owlbear vira `+z` no Three.js. Como o plano do mapa é rotacionado em -90° no eixo X, o topo da textura fica em Z negativo e a base em Z positivo, acompanhando o Y positivo para baixo do Owlbear.
 - `y` do Three.js representa altura física.
 - O espaço 3D usa `0.01` unidade por pixel de mundo da cena. O tamanho de uma célula em unidades 3D, portanto, depende do DPI da grade da cena.
 
@@ -230,7 +230,7 @@ Se `F` é o centro do enquadramento calculado a partir dos mapas visíveis e `P`
 
 `x3D = (P.x - F.x) * 0.01`
 
-`z3D = -(P.y - F.y) * 0.01`
+`z3D = (P.y - F.y) * 0.01`
 
 `y3D = elevation`, inicialmente igual a zero.
 
@@ -238,7 +238,7 @@ A conversão inversa é:
 
 `xOBR = F.x + x3D / 0.01`
 
-`yOBR = F.y - z3D / 0.01`
+`yOBR = F.y + z3D / 0.01`
 
 O tamanho de cada imagem precisa ser convertido da resolução do próprio arquivo para a resolução da cena antes da escala 3D:
 

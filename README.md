@@ -2,9 +2,9 @@
 
 Extensão do Owlbear Rodeo que abre uma visualização tridimensional da cena atual usando Three.js. O Owlbear continua sendo a fonte de verdade para mapas, tokens, desenhos, réguas, textos e permissões.
 
-## Estado da versão 1.2.0
+## Estado da versão 1.2.1
 
-A versão 1.2.0 reorganiza integralmente a interface do painel de entrada e do visualizador. A identidade visual usa superfícies opacas, tipografia editorial combinada com rótulos monoespaçados, controles compactos e uma única cor de ênfase quente. Os painéis priorizam leitura, estados acessíveis e controles diretos; não há dependências de fontes, bibliotecas de ícones ou imagens externas.
+A versão 1.2.1 corrige o alinhamento espacial das miniaturas com o mapa 2D e preserva as cores originais dos tokens no renderizador 3D. Também mantém o redesign editorial e os estados de interface introduzidos na versão 1.2.0.
 
 As ferramentas da versão 1.1.1 permanecem disponíveis. Ações de desenho e medição criam itens nativos na cena do Owlbear, mantendo a compatibilidade com o modo 2D.
 
@@ -62,7 +62,7 @@ Habilite a extensão em uma sala e clique em **Sistema 3D**.
 
 ## Compilar e testar
 
-A versão publicada é identificada como **1.1.1** no package.json, no manifest.json e na interface inicial. O CI verifica que esses identificadores permanecem consistentes.
+A versão publicada é identificada como **1.2.1** no package.json, no manifest.json e na interface inicial. O CI verifica que esses identificadores permanecem consistentes.
 
 ```bash
 npm test

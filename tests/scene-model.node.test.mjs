@@ -33,10 +33,26 @@ test('converte coordenadas 2D para 3D e de volta sem desvio', () => {
   const frame = calculateSceneFrame([imageItem()]);
   const world = mapToWorld(750, 200, frame);
   assert.ok(Math.abs(world.x - 2.5) < 1e-8);
-  assert.ok(Math.abs(world.z - 2) < 1e-8);
+  assert.ok(Math.abs(world.z + 2) < 1e-8);
   const restored = worldToMap(world.x, world.z, frame);
   assert.ok(Math.abs(restored.x - 750) < 1e-8);
   assert.ok(Math.abs(restored.y - 200) < 1e-8);
+});
+
+test('alinha o topo e a base do mapa 2D com os lados correspondentes do chão 3D', () => {
+  const frame = calculateSceneFrame([imageItem()]);
+  const top = mapToWorld(frame.centerX, frame.minY, frame);
+  const bottom = mapToWorld(frame.centerX, frame.maxY, frame);
+
+  assert.ok(top.z < 0, 'o topo da imagem deve ficar no lado negativo de Z');
+  assert.ok(bottom.z > 0, 'a base da imagem deve ficar no lado positivo de Z');
+  assert.ok(Math.abs(top.z + 4) < 1e-8);
+  assert.ok(Math.abs(bottom.z - 4) < 1e-8);
+
+  const restoredTop = worldToMap(top.x, top.z, frame);
+  const restoredBottom = worldToMap(bottom.x, bottom.z, frame);
+  assert.ok(Math.abs(restoredTop.y - frame.minY) < 1e-8);
+  assert.ok(Math.abs(restoredBottom.y - frame.maxY) < 1e-8);
 });
 
 test('retorna null quando não existe imagem MAP', () => {
@@ -87,7 +103,7 @@ test('manifest é JSON válido e aponta para a página inicial', async () => {
   assert.equal(manifest.action.popover, 'https://onze1onze.github.io/Sistema-3-dimensoes/index.html');
   assert.equal(manifest.icon, 'https://onze1onze.github.io/Sistema-3-dimensoes/icon.svg');
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(manifest.version, '1.2.0');
+  assert.equal(manifest.version, '1.2.1');
   assert.equal(packageJson.version, manifest.version);
   assert.match(manifest.icon, /^https:\/\/onze1onze\.github\.io\//);
 });
