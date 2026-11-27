@@ -21,12 +21,25 @@
           <button class="close-button" id="close-viewer" type="button" title="Fechar modo 3D" aria-label="Fechar modo 3D">×</button>
         </div>
       </header>
+      <section id="token-toolbar" class="token-toolbar" hidden aria-label="Ações dos tokens selecionados">
+        <div class="token-toolbar-heading">
+          <strong id="selection-label">Token selecionado</strong>
+          <button class="token-action subtle-action" id="deselect-tokens" type="button" title="Limpar seleção">Limpar</button>
+        </div>
+        <div class="token-toolbar-actions">
+          <button class="token-action" id="rotate-token-left" type="button" title="Girar selecionados 15 graus para a esquerda">↶ 15°</button>
+          <button class="token-action" id="rotate-token-right" type="button" title="Girar selecionados 15 graus para a direita">↷ 15°</button>
+          <button class="token-action" id="toggle-token-lock" type="button" title="Bloquear ou desbloquear tokens">Bloquear</button>
+          <button class="token-action" id="toggle-token-visibility" type="button" title="Ocultar ou mostrar tokens">Ocultar</button>
+          <button class="token-action danger-action" id="delete-selected-tokens" type="button" title="Excluir tokens selecionados">Excluir</button>
+        </div>
+      </section>
       <div class="viewer-bottom-left">
         <span class="legend-dot map-dot"></span><span id="map-count">0 mapas</span>
         <span class="legend-dot token-dot"></span><span id="token-count">0 miniaturas</span>
         <span class="legend-dot prop-dot"></span><span id="prop-count">0 objetos</span>
       </div>
-      <div class="viewer-help"><kbd>Botão direito</kbd> girar · <kbd>Scroll</kbd> zoom · <kbd>WASD</kbd> mover câmera · Arraste uma miniatura para movê-la</div>
+      <div class="viewer-help"><kbd>Clique</kbd> selecionar · <kbd>Shift</kbd> seleção múltipla · Arraste para mover · <kbd>Botão direito</kbd> girar câmera · <kbd>Scroll</kbd> zoom</div>
       <div id="message-panel" class="message-panel" hidden role="alert">
         <div class="message-symbol" id="message-symbol">!</div>
         <h2 id="message-title">Aguardando cena</h2>
