@@ -1,5 +1,15 @@
 # Roteiro de desenvolvimento
 
+## Versão 1.0.1 — Estabilização de interação
+
+- [x] Arraste direto de miniaturas com toque, caneta e mouse no canvas 3D
+- [x] Iniciar interação somente após movimento real, sem penalizar toques usados apenas para selecionar
+- [x] Preservar o ponto final quando o ponteiro é liberado durante a inicialização do SDK
+- [x] Consultar permissões por tipo em paralelo
+- [x] Tratar cancelamento, perda de foco e perda de captura do ponteiro
+- [x] Verificar consistência de versão entre pacote e manifesto
+- [x] Testar os estados da máquina de gesto e as transformações do mapa
+
 ## Marco 0.1 — Prova de renderização 3D
 
 - [x] Estrutura Vite + TypeScript
