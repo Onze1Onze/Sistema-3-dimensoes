@@ -17,6 +17,7 @@ import {
   normalizeRotation,
   translateTokenPositions,
 } from "./token-interaction";
+import { PointerDragGesture } from "./pointer-gesture";
 import "./styles.css";
 
 const MODAL_ID = "com.onze1onze.sistema-3-dimensoes/viewer";
@@ -113,7 +114,7 @@ const textures = new Map<string, THREE.Texture>();
 let currentItems: Item[] = [];
 let currentFrame: SceneFrame | null = null;
 let dragState: DragState | null = null;
-let pendingDragPointerId: number | null = null;
+let activePointerGesture: PointerDragGesture | null = null;
 let emptyClickCandidate: { pointerId: number; x: number; y: number } | null = null;
 let selectedTokenIds = new Set<string>();
 let currentPlayerRole: "GM" | "PLAYER" = "PLAYER";
@@ -673,20 +674,29 @@ async function deleteSelectedTokens(): Promise<void> {
   }
 }
 
-async function beginTokenDrag(record: RenderRecord, event: PointerEvent, selectedIds: string[]): Promise<void> {
+function finishPendingPointerGesture(gesture: PointerDragGesture): void {
+  if (activePointerGesture === gesture) activePointerGesture = null;
+  if (dragState?.pointerId === gesture.pointerId) endTokenDrag();
+  else controls.enabled = true;
+}
+
+async function beginTokenDrag(
+  record: RenderRecord,
+  gesture: PointerDragGesture,
+  selectedIds: string[],
+  startPosition: { x: number; y: number },
+): Promise<void> {
   const frame = currentFrame;
-  if (!frame || dragState) {
-    pendingDragPointerId = null;
-    controls.enabled = true;
+  if (!frame || dragState || !gesture.isActive || activePointerGesture !== gesture) {
+    finishPendingPointerGesture(gesture);
     return;
   }
 
   const clickedId = record.mesh.userData.itemId as string;
   const clickedItem = currentItems.find((item) => item.id === clickedId);
   if (!clickedItem || clickedItem.locked) {
-    pendingDragPointerId = null;
-    controls.enabled = true;
-    if (clickedItem?.locked) notify("Este token está bloqueado. Use o botão Desbloquear para movê-lo.");
+    if (clickedItem?.locked) notify("Este token está bloqueado. Desbloqueie-o para movê-lo.");
+    finishPendingPointerGesture(gesture);
     return;
   }
 
@@ -699,18 +709,32 @@ async function beginTokenDrag(record: RenderRecord, event: PointerEvent, selecte
     const movableItems: Item[] = [];
 
     for (const item of selectedItems) {
+      if (!gesture.isActive || activePointerGesture !== gesture) {
+        finishPendingPointerGesture(gesture);
+        return;
+      }
       if (item.locked) continue;
       const permission = item.layer === "CHARACTER" ? "CHARACTER_UPDATE" : "MOUNT_UPDATE";
       if (await OBR.player.hasPermission(permission)) movableItems.push(item);
     }
 
+    if (!gesture.isActive || activePointerGesture !== gesture) {
+      finishPendingPointerGesture(gesture);
+      return;
+    }
     if (movableItems.length < selectedItems.length) {
       notify("Tokens bloqueados ou sem permissão foram ignorados no arraste.");
     }
     if (movableItems.length === 0) {
-      pendingDragPointerId = null;
-      controls.enabled = true;
       notify("Nenhum token selecionado pode ser movido.");
+      finishPendingPointerGesture(gesture);
+      return;
+    }
+
+    // Um toque curto apenas seleciona. Só iniciamos a interação de movimento
+    // quando existe deslocamento real do dedo/ponteiro.
+    if (gesture.released && !gesture.shouldMove) {
+      finishPendingPointerGesture(gesture);
       return;
     }
 
@@ -721,26 +745,30 @@ async function beginTokenDrag(record: RenderRecord, event: PointerEvent, selecte
       OBR.scene.items.getItems(movableIds),
       OBR.scene.items.getItemAttachments(movableIds),
     ]);
+    if (!gesture.isActive || activePointerGesture !== gesture) {
+      finishPendingPointerGesture(gesture);
+      return;
+    }
+    if (gesture.released && !gesture.shouldMove) {
+      finishPendingPointerGesture(gesture);
+      return;
+    }
+
     const stateById = new Map<string, Item>();
     for (const item of [...attachmentState, ...selectedState]) stateById.set(item.id, item);
     const baseState = [...stateById.values()];
-    if (pendingDragPointerId !== event.pointerId || baseState.length === 0) {
-      pendingDragPointerId = null;
-      controls.enabled = true;
-      return;
-    }
-    const startPosition = getMapPositionAtPointer(event, frame);
-    if (!startPosition) {
-      pendingDragPointerId = null;
-      controls.enabled = true;
+    if (baseState.length === 0) {
+      finishPendingPointerGesture(gesture);
       return;
     }
 
     const [dispatch, stop] = await OBR.interaction.startItemInteraction(baseState);
-    if (pendingDragPointerId !== event.pointerId) {
+    if (!gesture.isActive || activePointerGesture !== gesture || (gesture.released && !gesture.shouldMove)) {
       stop();
+      finishPendingPointerGesture(gesture);
       return;
     }
+
     dragState = {
       itemIds: baseState.map((item) => item.id),
       frame,
@@ -748,21 +776,39 @@ async function beginTokenDrag(record: RenderRecord, event: PointerEvent, selecte
       startPosition,
       dispatch,
       stop,
-      pointerId: event.pointerId,
+      pointerId: gesture.pointerId,
     };
     controls.enabled = false;
+
+    // O dedo pode ter percorrido boa parte do mapa enquanto o SDK resolvia as
+    // permissões e inicializava a interação. Aplique imediatamente o ponto mais
+    // recente para que o token acompanhe o dedo desde o começo do gesto.
+    if (gesture.shouldMove) {
+      moveDraggedTokenAt(gesture.current.clientX, gesture.current.clientY);
+    }
+
+    // O dedo também pode ter sido solto durante a inicialização assíncrona.
+    // Nesse caso aplicamos a última posição acima e encerramos sem perder o drag.
+    if (gesture.released) {
+      endTokenDrag();
+      if (activePointerGesture === gesture) activePointerGesture = null;
+    }
   } catch (error) {
+    if (!gesture.isActive || activePointerGesture !== gesture) {
+      finishPendingPointerGesture(gesture);
+      return;
+    }
     console.error("[Sistema 3D] Falha ao iniciar interação dos tokens:", error);
-    pendingDragPointerId = null;
-    controls.enabled = true;
-    notify("Não foi possível iniciar a movimentação dos tokens selecionados.");
+    notify("Não foi possível iniciar a movimentação. Tente arrastar novamente.");
+    finishPendingPointerGesture(gesture);
   }
 }
 
-function moveDraggedToken(event: PointerEvent): void {
+function moveDraggedTokenAt(clientX: number, clientY: number): void {
   if (!dragState) return;
   const activeDrag = dragState;
-  const position = getMapPositionAtPointer(event, activeDrag.frame);
+  const syntheticPointer = { clientX, clientY } as PointerEvent;
+  const position = getMapPositionAtPointer(syntheticPointer, activeDrag.frame);
   if (!position) return;
   const translated = translateTokenPositions(activeDrag.initialPositions, {
     x: position.x - activeDrag.startPosition.x,
@@ -777,6 +823,10 @@ function moveDraggedToken(event: PointerEvent): void {
   });
 }
 
+function moveDraggedToken(event: PointerEvent): void {
+  moveDraggedTokenAt(event.clientX, event.clientY);
+}
+
 function endTokenDrag(): void {
   if (dragState) {
     try {
@@ -786,78 +836,125 @@ function endTokenDrag(): void {
     }
     dragState = null;
   }
-  pendingDragPointerId = null;
   controls.enabled = true;
 }
 
 renderer.domElement.addEventListener("pointerdown", (event: PointerEvent) => {
-  if (event.button !== 0 || blockedByFog) return;
+  // Toque primário e botão esquerdo do mouse iniciam o mesmo gesto de arraste.
+  // Segundo dedo continua disponível para o OrbitControls tratar gestos de câmera.
+  if (blockedByFog || (event.pointerType === "mouse" && event.button !== 0) || event.isPrimary === false) return;
+
   const record = findTokenAtPointer(event);
   if (!record) {
-    emptyClickCandidate = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    if (event.button === 0) {
+      emptyClickCandidate = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    }
     return;
   }
 
-  // O clique seleciona o token no próprio Owlbear. O evento é capturado antes
-  // do OrbitControls para não confundir a miniatura com um arraste da câmera.
   event.preventDefault();
   event.stopImmediatePropagation();
   emptyClickCandidate = null;
-  pendingDragPointerId = event.pointerId;
+
+  const frame = currentFrame;
+  const startPosition = frame ? getMapPositionAtPointer(event, frame) : null;
+  if (!frame || !startPosition) {
+    notify("Não foi possível calcular a posição do toque no tabuleiro.");
+    return;
+  }
+
+  const itemId = record.mesh.userData.itemId as string;
+  const current = [...selectedTokenIds];
+  const toggle = event.ctrlKey || event.metaKey;
+  const alreadySelected = current.includes(itemId);
+  const next = toggle
+    ? nextTokenSelection(current, itemId, { additive: false, toggle: true })
+    : event.shiftKey
+      ? nextTokenSelection(current, itemId, { additive: true, toggle: false })
+      : alreadySelected ? current : [itemId];
+
+  syncSelectedTokens(next);
+  if (toggle && alreadySelected) {
+    void OBR.player.deselect([itemId]).catch((error) => {
+      console.warn("[Sistema 3D] Não foi possível atualizar a seleção:", error);
+    });
+    return;
+  }
+
+  const gesture = new PointerDragGesture(event.pointerId, {
+    clientX: event.clientX,
+    clientY: event.clientY,
+  });
+  activePointerGesture = gesture;
   controls.enabled = false;
+
+  // Capturar o ponteiro faz o canvas continuar recebendo os movimentos mesmo
+  // quando o dedo sai visualmente de cima da miniatura.
   try {
     renderer.domElement.setPointerCapture(event.pointerId);
   } catch (error) {
-    console.warn("[Sistema 3D] Não foi possível capturar o ponteiro:", error);
+    console.warn("[Sistema 3D] Não foi possível capturar o toque:", error);
   }
 
-  void (async () => {
-    const itemId = record.mesh.userData.itemId as string;
-    try {
-      const current = (await OBR.player.getSelection()) ?? [];
-      const toggle = event.ctrlKey || event.metaKey;
-      const alreadySelected = current.includes(itemId);
-      const next = !event.shiftKey && !toggle && alreadySelected
-        ? current
-        : nextTokenSelection(current, itemId, { additive: event.shiftKey, toggle });
-      if (next.length === 0) await OBR.player.deselect();
-      else await OBR.player.select(next, true);
-      syncSelectedTokens(next);
+  // Atualize a seleção do Owlbear sem bloquear o início do arraste. A espera
+  // pela rede/API de seleção não pode fazer o dedo "perder" os primeiros pixels.
+  void OBR.player.select(next, true).catch((error) => {
+    console.warn("[Sistema 3D] Não foi possível sincronizar a seleção:", error);
+  });
 
-      if (pendingDragPointerId !== event.pointerId || (toggle && alreadySelected)) return;
-      await beginTokenDrag(record, event, next);
-    } catch (error) {
-      console.error("[Sistema 3D] Falha ao selecionar token:", error);
-      pendingDragPointerId = null;
-      controls.enabled = true;
-      notify("Não foi possível selecionar este token.");
-    }
-  })();
+  void beginTokenDrag(record, gesture, next, startPosition);
 }, { capture: true });
+
 renderer.domElement.addEventListener("pointermove", (event: PointerEvent) => {
   if (emptyClickCandidate?.pointerId === event.pointerId) {
     const dx = event.clientX - emptyClickCandidate.x;
     const dy = event.clientY - emptyClickCandidate.y;
     if (Math.hypot(dx, dy) > 5) emptyClickCandidate = null;
   }
-  if (dragState && dragState.pointerId === event.pointerId) moveDraggedToken(event);
+
+  const gesture = activePointerGesture;
+  if (gesture?.pointerId === event.pointerId && gesture.isActive) {
+    gesture.move({ clientX: event.clientX, clientY: event.clientY });
+    if (dragState?.pointerId === event.pointerId && gesture.shouldMove) {
+      moveDraggedToken(event);
+    }
+  }
 }, { capture: true });
+
 renderer.domElement.addEventListener("pointerup", (event: PointerEvent) => {
   const wasEmptyClick = emptyClickCandidate?.pointerId === event.pointerId;
   emptyClickCandidate = null;
-  pendingDragPointerId = null;
-  endTokenDrag();
+
+  const gesture = activePointerGesture;
+  if (gesture?.pointerId === event.pointerId) {
+    gesture.release({ clientX: event.clientX, clientY: event.clientY });
+
+    if (dragState?.pointerId === event.pointerId) {
+      if (gesture.shouldMove) moveDraggedTokenAt(gesture.current.clientX, gesture.current.clientY);
+      endTokenDrag();
+      activePointerGesture = null;
+    }
+    // Se startItemInteraction ainda está resolvendo, mantemos o gesto liberado
+    // vivo. beginTokenDrag aplicará sua posição final assim que o SDK responder.
+  }
+
   if (wasEmptyClick) {
     void OBR.player.deselect().then(() => syncSelectedTokens([])).catch((error) => {
       console.warn("[Sistema 3D] Não foi possível limpar a seleção:", error);
     });
   }
-});
-renderer.domElement.addEventListener("pointercancel", (_event: PointerEvent) => {
+}, { capture: true });
+
+renderer.domElement.addEventListener("pointercancel", (event: PointerEvent) => {
   emptyClickCandidate = null;
-  pendingDragPointerId = null;
-  endTokenDrag();
-});
+  const gesture = activePointerGesture;
+  if (gesture?.pointerId === event.pointerId) {
+    gesture.cancel();
+    activePointerGesture = null;
+  }
+  if (dragState?.pointerId === event.pointerId) endTokenDrag();
+  else controls.enabled = true;
+}, { capture: true });
 
 scaleDownButton?.addEventListener("click", () => void scaleSelectedTokens(0.9));
 scaleUpButton?.addEventListener("click", () => void scaleSelectedTokens(1.1));
