@@ -57,7 +57,7 @@ O build de produção fica na pasta `dist/`. O repositório está configurado pa
 
 ## Interação com tokens no modo 3D
 
-A seleção feita no modo 3D é sincronizada com a seleção padrão do Owlbear. Clique em um token para selecioná-lo; use **Shift + clique** para adicionar tokens à seleção ou **Ctrl/Cmd + clique** para alternar um token. Arraste qualquer token selecionado para mover o grupo, preservando a distância entre eles e incluindo os anexos da hierarquia.
+A seleção feita no modo 3D é sincronizada com a seleção padrão do Owlbear. Clique em um token para selecioná-lo; use **Shift + clique** para adicionar tokens à seleção ou **Ctrl/Cmd + clique** para alternar um token. Toque/clique diretamente em uma miniatura e arraste mantendo o dedo/botão pressionado para movê-la em tempo real. O visualizador captura o ponteiro durante o gesto para continuar recebendo o movimento mesmo quando ele sai de cima do token. Se houver vários tokens selecionados, arrastar um deles move o grupo, preservando a distância entre eles e incluindo os anexos da hierarquia.
 
 Quando há tokens selecionados, aparece uma barra contextual com ações de rotação, escala, bloqueio, visibilidade (somente mestre) e exclusão. As ações de edição e exclusão verificam as permissões por camada do Owlbear. Tokens bloqueados precisam ser desbloqueados antes de serem movidos, girados ou redimensionados. Clicar em uma área vazia limpa a seleção.
 
