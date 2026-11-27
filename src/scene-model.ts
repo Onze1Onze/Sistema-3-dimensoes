@@ -82,17 +82,22 @@ export function calculateSceneFrame(items: Item[], sceneDpi = 100): SceneFrame |
   };
 }
 
+/**
+ * Owlbear screen coordinates grow downward. The map plane is rotated -90°
+ * around X, so its top edge occupies negative Z and its bottom edge positive Z.
+ */
 export function mapToWorld(x: number, y: number, frame: SceneFrame): { x: number; z: number } {
   return {
     x: (x - frame.centerX) * WORLD_UNITS_PER_PIXEL,
-    z: -(y - frame.centerY) * WORLD_UNITS_PER_PIXEL,
+    z: (y - frame.centerY) * WORLD_UNITS_PER_PIXEL,
   };
 }
 
+/** Exact inverse of mapToWorld, including Owlbear's downward-positive Y axis. */
 export function worldToMap(x: number, z: number, frame: SceneFrame): { x: number; y: number } {
   return {
     x: x / WORLD_UNITS_PER_PIXEL + frame.centerX,
-    y: frame.centerY - z / WORLD_UNITS_PER_PIXEL,
+    y: frame.centerY + z / WORLD_UNITS_PER_PIXEL,
   };
 }
 
