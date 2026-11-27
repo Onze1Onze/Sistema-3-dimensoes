@@ -470,7 +470,13 @@ async function loadScene(): Promise<void> {
 
     const safe = await checkFogSafety(items, isCurrent);
     if (!isCurrent()) return;
-    if (safe) syncScene(items);
+    if (safe) {
+      syncScene(items);
+      // A primeira leitura da seleção pode terminar antes da criação dos meshes.
+      // Releia depois do render inicial para refletir também seleções feitas no 2D.
+      const selection = await OBR.player.getSelection();
+      if (isCurrent()) syncSelectedTokens(selection ?? []);
+    }
   } catch (error) {
     if (!isCurrent()) return;
     console.error("[Sistema 3D] Erro ao carregar a cena:", error);
