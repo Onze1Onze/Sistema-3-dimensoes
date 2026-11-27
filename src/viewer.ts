@@ -554,7 +554,9 @@ function getMapPositionAtPointer(event: PointerEvent, frame: SceneFrame): { x: n
   return Number.isFinite(position.x) && Number.isFinite(position.y) ? position : null;
 }
 
-function getTokenPermission(item: Item, operation: "UPDATE" | "DELETE"): string {
+type TokenPermission = "CHARACTER_UPDATE" | "CHARACTER_DELETE" | "MOUNT_UPDATE" | "MOUNT_DELETE";
+
+function getTokenPermission(item: Item, operation: "UPDATE" | "DELETE"): TokenPermission {
   return item.layer === "CHARACTER"
     ? operation === "UPDATE" ? "CHARACTER_UPDATE" : "CHARACTER_DELETE"
     : operation === "UPDATE" ? "MOUNT_UPDATE" : "MOUNT_DELETE";
