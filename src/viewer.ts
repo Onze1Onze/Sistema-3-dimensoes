@@ -2226,6 +2226,12 @@ async function beginTokenDrag(
       finishPendingPointerGesture(gesture);
       return;
     }
+    const clickedTokenCheck = tokenChecks.find((check) => check.item.id === clickedItem.id);
+    if (clickedTokenCheck?.reason) {
+      notify(clickedTokenCheck.reason);
+      finishPendingPointerGesture(gesture);
+      return;
+    }
     const movableItems = tokenChecks.filter((check) => !check.reason).map((check) => check.item);
     const blockedTokenIssues = tokenChecks
       .filter((check): check is { item: Item; reason: string } => check.reason !== null)

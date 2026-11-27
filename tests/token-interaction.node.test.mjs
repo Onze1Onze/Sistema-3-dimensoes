@@ -126,13 +126,14 @@ test("projects top-down pointer movement directly onto the ground plane", () => 
 
 test("normalizes vertical screen movement before mapping it onto the ground", () => {
   const diagonal = Math.SQRT1_2;
-  const projected = projectViewDeltaToGround(
-    { x: 0, y: 7 * diagonal, z: -7 * diagonal },
-    { x: 1, y: 0, z: 0 },
-    { x: 0, y: diagonal, z: -diagonal },
-    { x: 1, y: 0, z: 0 },
-    { x: 0, y: 0, z: -1 },
+  assert.deepEqual(
+    projectViewDeltaToGround(
+      { x: 0, y: 7 * diagonal, z: -7 * diagonal },
+      { x: 1, y: 0, z: 0 },
+      { x: 0, y: diagonal, z: -diagonal },
+      { x: 1, y: 0, z: 0 },
+      { x: 0, y: 0, z: -1 },
+    ),
+    { x: 0, z: -7 },
   );
-  assert.ok(Math.abs(projected.x) < 1e-9);
-  assert.ok(Math.abs(projected.z + 7) < 1e-9);
 });
