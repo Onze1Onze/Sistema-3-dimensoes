@@ -21,6 +21,52 @@
           <button class="close-button" id="close-viewer" type="button" title="Fechar modo 3D" aria-label="Fechar modo 3D">×</button>
         </div>
       </header>
+      <nav id="scene-tools" class="scene-tools" aria-label="Ferramentas do espaço 3D">
+        <div class="scene-tools-heading"><span>FERRAMENTAS</span><button id="tool-settings-toggle" class="dock-settings" type="button" title="Configurações das ferramentas" aria-label="Configurações das ferramentas">⚙</button></div>
+        <button class="scene-tool active" type="button" data-scene-tool="select" title="Selecionar e mover miniaturas"><span>↖</span><small>Selecionar</small></button>
+        <button class="scene-tool" type="button" data-scene-tool="pan" title="Mover a câmera"><span>✥</span><small>Câmera</small></button>
+        <div class="scene-tool-divider"></div>
+        <button class="scene-tool" type="button" data-scene-tool="measure" title="Medir distância com a grade do Owlbear"><span>↔</span><small>Medir</small></button>
+        <button class="scene-tool" type="button" data-scene-tool="marker" title="Desenho livre"><span>〰</span><small>Marcador</small></button>
+        <button class="scene-tool" type="button" data-scene-tool="line" title="Desenhar uma linha"><span>／</span><small>Linha</small></button>
+        <button class="scene-tool" type="button" data-scene-tool="rectangle" title="Desenhar um retângulo"><span>▱</span><small>Retângulo</small></button>
+        <button class="scene-tool" type="button" data-scene-tool="circle" title="Desenhar um círculo"><span>◯</span><small>Círculo</small></button>
+        <button class="scene-tool fire-tool" type="button" data-scene-tool="fire" title="Criar fogo decorativo 3D"><span>♨</span><small>Fogo 3D</small></button>
+        <button class="scene-tool" type="button" data-scene-tool="text" title="Adicionar um texto à cena"><span>T</span><small>Texto</small></button>
+        <div class="scene-tool-divider"></div>
+        <button class="scene-tool secondary-tool" id="tool-undo" type="button" title="Desfazer o último item criado"><span>↶</span><small>Desfazer</small></button>
+        <button class="scene-tool secondary-tool" id="integrations-toggle" type="button" title="Compatibilidade com extensões"><span>▦</span><small>Extensões</small></button>
+      </nav>
+      <aside id="tool-settings" class="tool-settings" hidden aria-label="Configurações da ferramenta">
+        <div class="tool-settings-header"><div><strong id="tool-settings-title">Configurações</strong><small id="tool-settings-description">Ajuste a ferramenta ativa</small></div><button id="tool-settings-close" type="button" aria-label="Fechar configurações">×</button></div>
+        <div id="drawing-settings" class="tool-settings-content">
+          <label class="setting-label" for="tool-stroke-color">Cor do traço<input id="tool-stroke-color" type="color" value="#8bb8ff"></label>
+          <label class="setting-label" for="tool-fill-color">Cor do preenchimento<input id="tool-fill-color" type="color" value="#8bb8ff"></label>
+          <label class="setting-label" for="tool-stroke-width">Espessura do traço <output id="tool-stroke-width-value">3 px</output><input id="tool-stroke-width" type="range" min="1" max="16" value="3"></label>
+          <label class="setting-label" for="tool-fill-opacity">Opacidade do preenchimento <output id="tool-fill-opacity-value">25%</output><input id="tool-fill-opacity" type="range" min="0" max="100" value="25"></label>
+          <label class="setting-check"><input id="tool-snap-grid" type="checkbox"> Ajustar ao centro da grade</label>
+        </div>
+        <div id="measure-settings" class="tool-settings-content" hidden>
+          <label class="setting-check"><input id="measure-persist" type="checkbox"> Manter régua na cena</label>
+          <p>As distâncias usam a configuração de grade e o tipo de medição definidos nesta cena do Owlbear.</p>
+        </div>
+        <div id="fire-settings" class="tool-settings-content" hidden>
+          <label class="setting-label" for="fire-radius">Raio da área de fogo <output id="fire-radius-value">2 células</output><input id="fire-radius" type="range" min="1" max="8" value="2"></label>
+          <p>O fogo é um efeito visual 3D compartilhado pelos usuários do Sistema 3D. Não cria uma luz de visão nem altera o Fog of War.</p>
+        </div>
+        <div id="text-settings" class="tool-settings-content" hidden>
+          <label class="setting-label" for="scene-text-value">Texto a inserir<textarea id="scene-text-value" rows="3" maxlength="400" placeholder="Escreva uma anotação para a cena..."></textarea></label>
+        </div>
+      </aside>
+      <aside id="integrations-panel" class="tool-settings integrations-panel" hidden aria-label="Integrações com Owlbear e extensões">
+        <div class="tool-settings-header"><div><strong>Integrações</strong><small>Owlbear Rodeo + Sistema 3D</small></div><button id="integrations-close" type="button" aria-label="Fechar integrações">×</button></div>
+        <div class="integration-content">
+          <div class="integration-status"><span class="integration-dot"></span><div><strong>Itens nativos sincronizados</strong><small>Desenhos, réguas, textos e miniaturas são gravados na cena do Owlbear.</small></div></div>
+          <div class="integration-status"><span class="integration-dot"></span><div><strong>Ferramentas 3D próprias</strong><small>Seleção, câmera, medição, marcador, formas, fogo e texto.</small></div></div>
+          <div class="integration-note"><strong>Extensões de terceiros</strong><p>O Owlbear não oferece uma API pública para enumerar e incorporar automaticamente os painéis de outras extensões dentro deste modal. Extensões que criam itens na cena continuam usando a mesma cena; a visualização 3D exibe os tipos de item que ela sabe interpretar. Para abrir um painel exclusivo de outra extensão, feche o modo 3D e use a ação dela no Owlbear.</p></div>
+        </div>
+      </aside>
+      <div id="measure-readout" class="measure-readout" hidden aria-live="polite">0 ft</div>
       <section id="token-toolbar" class="token-toolbar" hidden aria-label="Ações dos tokens selecionados">
         <div class="token-toolbar-heading">
           <strong id="selection-label">Token selecionado</strong>
