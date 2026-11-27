@@ -5,6 +5,8 @@ import {
   normalizeRotation,
   translateTokenPositions,
   canModifyCharacter,
+  intersectRayWithPlane,
+  projectViewDeltaToGround,
 } from "../src/token-interaction.ts";
 
 test("seleciona apenas o token clicado sem modificadores", () => {
@@ -70,4 +72,68 @@ test("respects Owlbear character ownership when Owner Only is enabled", () => {
   assert.equal(canModifyCharacter("PLAYER", true, "player-b", "player-a"), false);
   assert.equal(canModifyCharacter("PLAYER", false, "player-b", "player-a"), true);
   assert.equal(canModifyCharacter("GM", true, "player-b", "player-a"), true);
+});
+
+
+test("intersects a camera-facing plane even when the pointer ray is above the floor", () => {
+  assert.deepEqual(
+    intersectRayWithPlane(
+      { x: 0, y: 5, z: 0 },
+      { x: 0, y: -1, z: -1 },
+      { x: 0, y: 2, z: -3 },
+      { x: 0, y: 1, z: 1 },
+    ),
+    { x: 0, y: 2, z: -3 },
+  );
+});
+
+test("returns null for a ray parallel to the selection plane", () => {
+  assert.equal(
+    intersectRayWithPlane(
+      { x: 0, y: 1, z: 0 },
+      { x: 1, y: 0, z: 0 },
+      { x: 0, y: 2, z: 0 },
+      { x: 0, y: 1, z: 0 },
+    ),
+    null,
+  );
+});
+
+test("does not accept a plane intersection behind the camera", () => {
+  assert.equal(
+    intersectRayWithPlane(
+      { x: 0, y: 0, z: 0 },
+      { x: 0, y: 1, z: 0 },
+      { x: 0, y: -2, z: 0 },
+      { x: 0, y: 1, z: 0 },
+    ),
+    null,
+  );
+});
+
+test("projects top-down pointer movement directly onto the ground plane", () => {
+  assert.deepEqual(
+    projectViewDeltaToGround(
+      { x: 4, y: 0, z: -7 },
+      { x: 1, y: 0, z: 0 },
+      { x: 0, y: 0, z: -1 },
+      { x: 1, y: 0, z: 0 },
+      { x: 0, y: 0, z: -1 },
+    ),
+    { x: 4, z: -7 },
+  );
+});
+
+test("normalizes vertical screen movement before mapping it onto the ground", () => {
+  const diagonal = Math.SQRT1_2;
+  assert.deepEqual(
+    projectViewDeltaToGround(
+      { x: 0, y: 7 * diagonal, z: -7 * diagonal },
+      { x: 1, y: 0, z: 0 },
+      { x: 0, y: diagonal, z: -diagonal },
+      { x: 1, y: 0, z: 0 },
+      { x: 0, y: 0, z: -1 },
+    ),
+    { x: 0, z: -7 },
+  );
 });

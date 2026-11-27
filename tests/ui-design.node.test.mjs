@@ -5,11 +5,12 @@ import { readFile } from "node:fs/promises";
 const read = async (path) => readFile(new URL(path, import.meta.url), "utf8");
 
 test("launcher and viewer keep the visual redesign assets local and complete", async () => {
-  const [launcher, viewer, styles, icon] = await Promise.all([
+  const [launcher, viewer, styles, icon, viewerSource] = await Promise.all([
     read("../index.html"),
     read("../viewer.html"),
     read("../src/styles.css"),
     read("../public/icon.svg"),
+    read("../src/viewer.ts"),
   ]);
 
   assert.match(launcher, /id="launcher-status"/);
@@ -50,6 +51,11 @@ test("launcher and viewer keep the visual redesign assets local and complete", a
   assert.match(styles, /\.scene-tool\.active/);
   assert.match(styles, /\.launch-button:disabled/);
   assert.match(styles, /\.toast\.visible/);
+  assert.match(viewer, /aria-keyshortcuts="V"/);
+  assert.match(viewerSource, /selectionProxy/);
+  assert.match(viewerSource, /getMapPositionAtDragPointer/);
+  assert.match(viewerSource, /getItemUpdateBlockReason/);
+  assert.match(viewerSource, /Ferramenta Selecionar ativada \(V\)/);
   assert.match(styles, /prefers-reduced-motion/);
 });
 

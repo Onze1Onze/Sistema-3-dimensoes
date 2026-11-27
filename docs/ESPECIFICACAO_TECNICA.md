@@ -1,6 +1,6 @@
 # Especificação técnica — Owlbear 3D
 
-**Versão do produto:** 1.3.0  
+**Versão do produto:** 1.3.1  
 **Estado:** implementação em evolução; este documento registra a arquitetura e as limitações conhecidas.  
 **Objetivo:** abrir uma visualização tridimensional da cena atual do Owlbear Rodeo, usando o Owlbear como fonte oficial dos dados e um renderizador Three.js independente.
 
@@ -12,7 +12,7 @@
 
 ## 1. Decisão de arquitetura
 
-A partir da versão 1.3.0, o visualizador também oferece redimensionamento conjunto das imagens da camada MAP. O controle deslizante fornece prévia local durante o arraste e envia uma única atualização autorizada por MAP_UPDATE ao ser solto. A escala é aplicada ao redor do centro global dos limites das imagens, preservando o arranjo dos mapas compostos por várias peças.
+A partir da versão 1.3.1, o visualizador também oferece redimensionamento conjunto das imagens da camada MAP. O controle deslizante fornece prévia local durante o arraste e envia uma única atualização autorizada por MAP_UPDATE ao ser solto. A escala é aplicada ao redor do centro global dos limites das imagens, preservando o arranjo dos mapas compostos por várias peças.
 
 A extensão não tentará substituir nem modificar o renderizador interno do Owlbear Rodeo. Ela funcionará como um segundo visualizador, aberto por uma janela modal em tela cheia, que lê a cena do Owlbear pelo SDK oficial e constrói uma representação 3D sincronizada.
 
@@ -317,7 +317,10 @@ A decisão principal é usar `OBR.interaction`, não um canal próprio de mensag
 1. O Raycaster detecta a miniatura sob o cursor.
 2. O sistema confirma que o item não está bloqueado e que o usuário tem permissão para movê-lo.
 3. O visualizador inicia `OBR.interaction.startItemInteraction` usando o item real do Owlbear como estado-base.
-4. A cada atualização do arraste, o Raycaster projeta o cursor em um plano horizontal na altura do chão.
+4. A seleção utiliza uma geometria invisível orientada integralmente pela câmera, independente do billboard visual.
+4. O arraste mantém um plano de referência na profundidade inicial do token e projeta o deslocamento da tela sobre eixos horizontais normalizados, convertendo o resultado para coordenadas do Owlbear.
+5. A interseção com o plano é calculada à frente do raio; raios paralelos ou planos atrás da câmera são rejeitados.
+6. A captura do ponteiro permanece ativa até o encerramento ou cancelamento do gesto.
 5. A posição 3D é convertida para coordenadas 2D do Owlbear.
 6. A função `update` da interação atualiza somente `position` do item.
 7. Ao soltar o botão, chamar `stop`.
