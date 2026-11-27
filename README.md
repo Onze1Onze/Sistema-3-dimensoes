@@ -2,9 +2,11 @@
 
 Extensão do Owlbear Rodeo que abre uma visualização tridimensional da cena atual usando Three.js. O Owlbear continua sendo a fonte de verdade para mapas, tokens, desenhos, réguas, textos e permissões.
 
-## Estado da versão 1.1.1
+## Estado da versão 1.2.0
 
-A versão 1.1.1 adiciona um conjunto de ferramentas integrado ao visualizador 3D. As ações de desenho e medição criam itens nativos na cena do Owlbear, mantendo a compatibilidade com o modo 2D. O painel contextual oferece cores, espessura, opacidade, ajuste à grade, régua persistente e raio de fogo.
+A versão 1.2.0 reorganiza integralmente a interface do painel de entrada e do visualizador. A identidade visual usa superfícies opacas, tipografia editorial combinada com rótulos monoespaçados, controles compactos e uma única cor de ênfase quente. Os painéis priorizam leitura, estados acessíveis e controles diretos; não há dependências de fontes, bibliotecas de ícones ou imagens externas.
+
+As ferramentas da versão 1.1.1 permanecem disponíveis. Ações de desenho e medição criam itens nativos na cena do Owlbear, mantendo a compatibilidade com o modo 2D.
 
 Leia também a [especificação técnica completa](docs/ESPECIFICACAO_TECNICA.md) e o [roteiro de desenvolvimento](docs/ROADMAP.md).
 

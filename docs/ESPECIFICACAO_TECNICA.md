@@ -1,6 +1,6 @@
 # Especificação técnica — Owlbear 3D
 
-**Versão do produto:** 1.1.1  
+**Versão do produto:** 1.2.0  
 **Estado:** implementação em evolução; este documento registra a arquitetura e as limitações conhecidas.  
 **Objetivo:** abrir uma visualização tridimensional da cena atual do Owlbear Rodeo, usando o Owlbear como fonte oficial dos dados e um renderizador Three.js independente.
 
@@ -538,7 +538,13 @@ O MVP só será considerado concluído quando todos os itens abaixo forem verdad
 
 ---
 
-## 17. Fontes técnicas consultadas
+## 17. Interface e linguagem visual
+
+A interface do visualizador e do painel de entrada utiliza uma linguagem editorial e utilitária, sem componentes de marketing. A hierarquia é formada por títulos serifados de destaque, texto de interface sem serifa e metadados monoespaçados. A paleta é neutra e de baixo ruído, com acento quente reservado a seleção, foco e ações importantes. Superfícies são opacas, delimitadas por linhas finas e sem efeitos de vidro, brilho ou sombras decorativas.
+
+Controles mantêm estados perceptíveis de hover, foco por teclado, ativo e desabilitado. O estado da cena, erros, carregamento e ausência de mapa são comunicados por texto e marcadores de estado; não dependem apenas de cor. Ícones são desenhos vetoriais próprios, sem pacotes externos ou emojis. Em telas estreitas, a barra de ferramentas reduz os rótulos visuais sem remover nomes acessíveis e títulos de ajuda.
+
+## 18. Fontes técnicas consultadas
 
 Documentação oficial do Owlbear Rodeo:
 

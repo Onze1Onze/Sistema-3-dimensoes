@@ -1,5 +1,16 @@
 # Roteiro de desenvolvimento
 
+## Versão 1.2.0 — Redesign completo da interface
+
+- [x] Substituir o painel inicial por uma entrada editorial, compacta e orientada ao estado real da cena.
+- [x] Refazer a barra superior, a navegação lateral, as ferramentas contextuais e os estados vazios/erro do visualizador.
+- [x] Remover gradientes, brilho, glassmorphism, blur, sombras decorativas, botões-pílula e animações gratuitas.
+- [x] Estabelecer paleta neutra com acento quente único, tipografia hierárquica e escala de espaçamento consistente.
+- [x] Trocar emojis e caracteres decorativos por ícones vetoriais próprios.
+- [x] Incluir estados de foco, hover, ativo, desabilitado, carregamento, erro e ausência de mapa.
+- [x] Melhorar rótulos, microcopy e estados acessíveis dos painéis.
+- [x] Atualizar identidade do ícone, manifesto e documentação.
+
 ## Versão 1.1.1 — Correções de precisão e estabilidade
 
 - [x] Normalizar dimensões de imagens pelo DPI da cena e DPI individual da imagem.

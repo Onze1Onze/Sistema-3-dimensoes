@@ -3,22 +3,48 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#121722" />
+    <meta name="theme-color" content="#20221f" />
+    <meta name="color-scheme" content="dark" />
     <title>Sistema 3 Dimensões · Owlbear Rodeo</title>
   </head>
   <body class="launcher-body">
-    <main class="launcher" aria-labelledby="title">
-      <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-      <p class="eyebrow">EXTENSÃO PARA OWLBEAR RODEO</p>
-      <h1 id="title">Sistema <span>3 Dimensões</span></h1>
-      <p class="intro">Visualize o mapa atual em perspectiva tridimensional, mantendo os tokens vinculados à cena original.</p>
-      <div class="status-line" id="launcher-status" role="status" aria-live="polite">
-        <span class="status-dot"></span><span>Conectando ao Owlbear Rodeo…</span>
-      </div>
-      <button id="launch-button" class="primary-button" type="button" disabled>
-        <span>Entrar no modo 3D</span><span aria-hidden="true">↗</span>
-      </button>
-      <p class="footnote">Versão 1.1.1 · Ferramentas 3D integradas ao Owlbear</p>
+    <main class="launcher" aria-labelledby="launcher-title">
+      <header class="launcher-header">
+        <span class="brand-stamp" aria-hidden="true">
+          <svg viewBox="0 0 32 32">
+            <path d="M5 9.5 16 4l11 5.5v13L16 28 5 22.5z"/>
+            <path d="M5 9.5 16 15l11-5.5M16 15v13M10.5 7 21.5 12.5"/>
+          </svg>
+        </span>
+        <div class="brand-lockup">
+          <span class="brand-overline">OWLBear RODEO / EXTENSÃO</span>
+          <strong>Sistema 3 Dimensões</strong>
+        </div>
+        <span class="version-stamp">1.2.0</span>
+      </header>
+
+      <section class="launcher-content">
+        <p class="section-index">01 <span>/</span> VISUALIZADOR</p>
+        <h1 id="launcher-title">A cena, vista<br /><em>em três dimensões.</em></h1>
+        <p class="launcher-description">
+          Abra uma representação 3D da cena atual. Mapas, miniaturas e desenhos continuam vinculados ao Owlbear Rodeo.
+        </p>
+
+        <div class="launcher-state" id="launcher-status" data-state="checking" role="status" aria-live="polite">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span class="status-copy">Conectando ao Owlbear Rodeo…</span>
+        </div>
+
+        <button id="launch-button" class="launch-button" type="button" disabled>
+          <span class="button-label">Entrar no modo 3D</span>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M10 5l5 5-5 5"/></svg>
+        </button>
+      </section>
+
+      <footer class="launcher-footer">
+        <span>FERRAMENTAS DE MESA / 3D</span>
+        <span>VERSÃO 1.2.0</span>
+      </footer>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
