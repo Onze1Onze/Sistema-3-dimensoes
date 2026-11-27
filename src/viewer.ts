@@ -12,6 +12,11 @@ import {
   type SceneFrame,
   WORLD_UNITS_PER_PIXEL,
 } from "./scene-model";
+import {
+  nextTokenSelection,
+  normalizeRotation,
+  translateTokenPositions,
+} from "./token-interaction";
 import "./styles.css";
 
 const MODAL_ID = "com.onze1onze.sistema-3-dimensoes/viewer";
@@ -26,6 +31,14 @@ const messageTitle = document.querySelector<HTMLElement>("#message-title");
 const messageBody = document.querySelector<HTMLElement>("#message-body");
 const messageSymbol = document.querySelector<HTMLElement>("#message-symbol");
 const toast = document.querySelector<HTMLDivElement>("#toast");
+const tokenToolbar = document.querySelector<HTMLElement>("#token-toolbar");
+const selectionLabel = document.querySelector<HTMLElement>("#selection-label");
+const rotateLeftButton = document.querySelector<HTMLButtonElement>("#rotate-token-left");
+const rotateRightButton = document.querySelector<HTMLButtonElement>("#rotate-token-right");
+const lockButton = document.querySelector<HTMLButtonElement>("#toggle-token-lock");
+const visibilityButton = document.querySelector<HTMLButtonElement>("#toggle-token-visibility");
+const deleteButton = document.querySelector<HTMLButtonElement>("#delete-selected-tokens");
+const deselectButton = document.querySelector<HTMLButtonElement>("#deselect-tokens");
 
 if (!canvas) throw new Error("Canvas do visualizador não foi encontrado.");
 
@@ -80,11 +93,14 @@ interface RenderRecord {
   width: number;
   height: number;
   material: THREE.MeshStandardMaterial;
+  selectionRing?: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
 }
 
 interface DragState {
-  itemId: string;
+  itemIds: string[];
   frame: SceneFrame;
+  initialPositions: { id: string; x: number; y: number }[];
+  startPosition: { x: number; y: number };
   dispatch: (recipe: (draft: any) => void) => any;
   stop: () => void;
   pointerId: number;
@@ -96,12 +112,16 @@ let currentItems: Item[] = [];
 let currentFrame: SceneFrame | null = null;
 let dragState: DragState | null = null;
 let pendingDragPointerId: number | null = null;
+let emptyClickCandidate: { pointerId: number; x: number; y: number } | null = null;
+let selectedTokenIds = new Set<string>();
+let currentPlayerRole: "GM" | "PLAYER" = "PLAYER";
 let blockedByFog = false;
 let sceneOperationVersion = 0;
 let lastToastTimer = 0;
 let unsubscribeItems: (() => void) | null = null;
 let unsubscribeFog: (() => void) | null = null;
 let unsubscribeReady: (() => void) | null = null;
+let unsubscribePlayer: (() => void) | null = null;
 
 function setStatus(text: string): void {
   if (statusLabel) statusLabel.textContent = text;
@@ -137,6 +157,8 @@ function updateCounts(items: Item[]): void {
 function disposeRecord(record: RenderRecord): void {
   record.mesh.geometry.dispose();
   record.material.dispose();
+  record.selectionRing?.geometry.dispose();
+  record.selectionRing?.material.dispose();
 }
 
 function removeMissingRecords(allowedIds: Set<string>): void {
@@ -212,9 +234,28 @@ function createRecord(item: OBRImage, kind: "map" | "token" | "prop"): RenderRec
   mesh.userData.itemId = item.id;
   const object = new THREE.Group();
   object.add(mesh);
+  let selectionRing: RenderRecord["selectionRing"];
+  if (kind === "token") {
+    const ringGeometry = new THREE.RingGeometry(0.82, 1, 40);
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: "#9bc3ff",
+      transparent: true,
+      opacity: 0.95,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    selectionRing = new THREE.Mesh(ringGeometry, ringMaterial);
+    selectionRing.rotation.x = -Math.PI / 2;
+    selectionRing.position.y = 0.025;
+    selectionRing.renderOrder = 10001;
+    selectionRing.scale.set(Math.max(worldSize.width, worldSize.height) * 0.62, Math.max(worldSize.width, worldSize.height) * 0.62, 1);
+    selectionRing.visible = selectedTokenIds.has(item.id);
+    object.add(selectionRing);
+  }
   const parent = kind === "map" ? mapRoot : kind === "token" ? tokenRoot : propRoot;
   parent.add(object);
-  const record: RenderRecord = { object, mesh, url: item.image.url, width: worldSize.width, height: worldSize.height, material };
+  const record: RenderRecord = { object, mesh, url: item.image.url, width: worldSize.width, height: worldSize.height, material, selectionRing };
   // Registre antes de consultar o cache: em cache hit o callback é síncrono.
   records.set(item.id, record);
   getTexture(item.image.url, (texture) => {
@@ -243,6 +284,11 @@ function updateRecord(item: OBRImage, record: RenderRecord, kind: "map" | "token
   record.object.position.set(position.x, kind === "token" ? 0 : kind === "map" ? 0 : 0.018, position.z);
   record.object.rotation.set(0, THREE.MathUtils.degToRad(item.rotation), 0);
   record.mesh.scale.set(1, 1, 1);
+  if (record.selectionRing) {
+    record.selectionRing.visible = selectedTokenIds.has(item.id);
+    const ringScale = Math.max(size.width, size.height) * 0.62;
+    record.selectionRing.scale.set(ringScale, ringScale, 1);
+  }
   if (Math.abs(record.width - size.width) > 1e-6 || Math.abs(record.height - size.height) > 1e-6) {
     record.mesh.geometry.dispose();
     record.mesh.geometry = new THREE.PlaneGeometry(size.width, size.height);
@@ -334,6 +380,7 @@ function syncScene(items: Item[]): void {
     updateRecord(item, record, kind, frame);
   }
   removeMissingRecords(allowedIds);
+  syncSelectedTokens([...selectedTokenIds]);
 
   const count = images.length;
   hideMessage();
@@ -362,6 +409,8 @@ function clearWorld(): void {
   tokenRoot.clear();
   currentItems = [];
   currentFrame = null;
+  selectedTokenIds.clear();
+  refreshTokenToolbar();
 }
 
 function fitCamera(frame: SceneFrame): void {
