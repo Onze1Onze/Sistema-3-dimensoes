@@ -1,8 +1,10 @@
 # Especificação técnica — Owlbear 3D
 
-**Versão:** 0.1  
-**Estado:** arquitetura proposta, pronta para orientar o protótipo  
+**Versão do produto:** 1.0.1  
+**Estado:** implementação em evolução; este documento registra a arquitetura e as limitações conhecidas.  
 **Objetivo:** abrir uma visualização tridimensional da cena atual do Owlbear Rodeo, usando o Owlbear como fonte oficial dos dados e um renderizador Three.js independente.
+
+> O arraste de miniaturas no plano do tabuleiro está implementado para toque, caneta e mouse. A versão 1.0.1 adia o início da interação até o gesto ultrapassar o limiar de movimento, paraleliza as verificações de permissão e preserva a última posição quando o ponteiro é liberado antes da resposta do SDK. A representação das miniaturas continua sendo 2.5D (billboards verticais); elevação vertical livre, modelos volumétricos e movimento entre andares não fazem parte desta versão.
 
 ---
 
