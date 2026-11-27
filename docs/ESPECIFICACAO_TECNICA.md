@@ -222,7 +222,7 @@ Esta é uma das partes mais importantes do projeto. Um erro aqui faz os tokens s
 - `y` do Three.js representa altura física.
 - O espaço 3D usa `0.01` unidade por pixel de mundo da cena. O tamanho de uma célula em unidades 3D, portanto, depende do DPI da grade da cena.
 
-Definir uma origem estável da cena, preferencialmente a posição do mapa principal. A origem nunca deve ser recalculada durante o arraste de uma miniatura.
+Definir uma origem estável da cena a partir dos limites reais dos mapas retornados por `OBR.scene.items.getItemBounds(mapIds)`. Não reconstruir essa caixa apenas com `image.width`, `image.height`, DPI e escala: a geometria oficial do Owlbear já aplica as transformações do item. A origem nunca deve ser recalculada durante o arraste de uma miniatura; o resultado fica em cache até a geometria de um mapa ou o DPI da cena mudar.
 
 ### Conversão de posição
 

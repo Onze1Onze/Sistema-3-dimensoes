@@ -19,6 +19,36 @@ export interface SceneCounts {
   props: number;
 }
 
+export interface SceneBounds {
+  min: { x: number; y: number };
+  max: { x: number; y: number };
+}
+
+/** Build the frame from Owlbear's already-transformed, authoritative bounds. */
+export function calculateSceneFrameFromBounds(bounds: SceneBounds | null | undefined): SceneFrame | null {
+  if (!bounds) return null;
+  const values = [bounds.min?.x, bounds.min?.y, bounds.max?.x, bounds.max?.y];
+  if (!values.every((value) => Number.isFinite(value))) return null;
+
+  const minX = Math.min(bounds.min.x, bounds.max.x);
+  const minY = Math.min(bounds.min.y, bounds.max.y);
+  const maxX = Math.max(bounds.min.x, bounds.max.x);
+  const maxY = Math.max(bounds.min.y, bounds.max.y);
+  const width = Math.max(1, maxX - minX);
+  const height = Math.max(1, maxY - minY);
+
+  return {
+    centerX: minX + width / 2,
+    centerY: minY + height / 2,
+    width,
+    height,
+    minX,
+    minY,
+    maxX,
+    maxY,
+  };
+}
+
 export function isOwlbearImage(item: Item): item is OBRImage {
   return item.type === "IMAGE" && "image" in item;
 }

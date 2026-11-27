@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { calculateSceneFrame, getImageWorldSize, getSceneCounts, mapToWorld, worldToMap } from '../src/scene-model.ts';
+import { calculateSceneFrame, calculateSceneFrameFromBounds, getImageWorldSize, getSceneCounts, mapToWorld, worldToMap } from '../src/scene-model.ts';
 
 function imageItem(overrides = {}) {
   return {
@@ -21,6 +21,27 @@ test('calcula enquadramento de mapa centralizado', () => {
   assert.equal(frame.centerY, 400);
   assert.equal(frame.width, 1000);
   assert.equal(frame.height, 800);
+});
+
+test('usa os limites transformados fornecidos pelo Owlbear para definir a origem 3D', () => {
+  const frame = calculateSceneFrameFromBounds({
+    min: { x: 120, y: 260 },
+    max: { x: 2120, y: 1260 },
+  });
+
+  assert.deepEqual(frame, {
+    centerX: 1120,
+    centerY: 760,
+    width: 2000,
+    height: 1000,
+    minX: 120,
+    minY: 260,
+    maxX: 2120,
+    maxY: 1260,
+  });
+
+  assert.deepEqual(mapToWorld(frame.centerX, frame.centerY, frame), { x: 0, z: 0 });
+  assert.equal(calculateSceneFrameFromBounds(null), null);
 });
 
 test('considera rotação para determinar limites do mapa', () => {
@@ -103,7 +124,7 @@ test('manifest é JSON válido e aponta para a página inicial', async () => {
   assert.equal(manifest.action.popover, 'https://onze1onze.github.io/Sistema-3-dimensoes/index.html');
   assert.equal(manifest.icon, 'https://onze1onze.github.io/Sistema-3-dimensoes/icon.svg');
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(manifest.version, '1.2.1');
+  assert.equal(manifest.version, '1.2.2');
   assert.equal(packageJson.version, manifest.version);
   assert.match(manifest.icon, /^https:\/\/onze1onze\.github\.io\//);
 });

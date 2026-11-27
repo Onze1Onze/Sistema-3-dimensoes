@@ -14,6 +14,7 @@ import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import {
   calculateSceneFrame,
+  calculateSceneFrameFromBounds,
   getImageWorldSize,
   getSceneCounts,
   getSceneImages,
@@ -220,6 +221,10 @@ let sceneToolGesture: SceneToolGesture | null = null;
 let lastCreatedSceneItemIds: string[] = [];
 let gridDpi = 100;
 let gridScaleInfo: { multiplier: number; unit: string; digits: number } | null = null;
+let latestSceneFrameSignature: string | null = null;
+let cachedSceneFrameSignature: string | null = null;
+let cachedSceneFrame: SceneFrame | null = null;
+let pendingSceneFrame: { signature: string; promise: Promise<SceneFrame | null> } | null = null;
 let sceneOperationVersion = 0;
 let sceneSessionVersion = 0;
 let gridSettingsVersion = 0;
@@ -459,11 +464,85 @@ function updateRecord(item: OBRImage, record: RenderRecord, kind: "map" | "token
   record.material.needsUpdate = true;
 }
 
-function syncScene(items: Item[]): void {
+function getSceneFrameSignature(items: Item[]): string | null {
+  const maps = getSceneImages(items)
+    .filter((item) => item.layer === "MAP" && item.image.mime.startsWith("image/") &&
+      item.image.width > 0 && item.image.height > 0)
+    .sort((a, b) => a.id.localeCompare(b.id));
+  if (maps.length === 0) return null;
+
+  return JSON.stringify({
+    sceneDpi: gridDpi,
+    maps: maps.map((item) => ({
+      id: item.id,
+      position: item.position,
+      rotation: item.rotation,
+      scale: item.scale,
+      width: item.image.width,
+      height: item.image.height,
+      imageDpi: item.grid?.dpi,
+    })),
+  });
+}
+
+/**
+ * Ask Owlbear for the actual transformed MAP bounds. Cache until a map's
+ * transform or the scene grid DPI changes; moving tokens does not invalidate it.
+ */
+async function resolveSceneFrame(items: Item[]): Promise<SceneFrame | null> {
+  const maps = getSceneImages(items).filter((item) =>
+    item.layer === "MAP" && item.image.mime.startsWith("image/") &&
+    item.image.width > 0 && item.image.height > 0,
+  );
+  const signature = getSceneFrameSignature(items);
+  if (!signature || maps.length === 0) {
+    latestSceneFrameSignature = null;
+    cachedSceneFrameSignature = null;
+    cachedSceneFrame = null;
+    pendingSceneFrame = null;
+    return null;
+  }
+
+  if (cachedSceneFrameSignature === signature && cachedSceneFrame) return cachedSceneFrame;
+  if (pendingSceneFrame?.signature === signature) return pendingSceneFrame.promise;
+
+  latestSceneFrameSignature = signature;
+  const request = {
+    signature,
+    promise: OBR.scene.items.getItemBounds(maps.map((item) => item.id)).then((bounds) => {
+      const frame = calculateSceneFrameFromBounds(bounds);
+      if (!frame) throw new Error("Owlbear retornou limites vazios para os mapas visíveis.");
+      return frame;
+    }).catch((error: unknown) => {
+      console.warn("[Sistema 3D] Não foi possível obter os limites oficiais dos mapas; usando cálculo de contingência.", error);
+      return calculateSceneFrame(items, gridDpi);
+    }),
+  };
+  pendingSceneFrame = request;
+
+  try {
+    const frame = await request.promise;
+    if (latestSceneFrameSignature === signature) {
+      cachedSceneFrameSignature = signature;
+      cachedSceneFrame = frame;
+    }
+    return frame;
+  } finally {
+    if (pendingSceneFrame === request) pendingSceneFrame = null;
+  }
+}
+
+async function syncSceneWithResolvedFrame(items: Item[], isCurrent: () => boolean = () => true): Promise<void> {
+  const signature = getSceneFrameSignature(items);
+  const frame = await resolveSceneFrame(items);
+  if (!isCurrent() || signature !== getSceneFrameSignature(items)) return;
+  syncScene(items, frame);
+}
+
+function syncScene(items: Item[], frame: SceneFrame | null): void {
   if (blockedByFog) return;
   currentItems = items;
   const images = getSceneImages(items).filter((item) => classifyImage(item) !== null);
-  const frame = calculateSceneFrame(items, gridDpi);
   updateCounts(items);
   if (!frame) {
     clearWorld();
@@ -911,6 +990,10 @@ function clearWorld(): void {
   tokenRoot.clear();
   currentItems = [];
   currentFrame = null;
+  latestSceneFrameSignature = null;
+  cachedSceneFrameSignature = null;
+  cachedSceneFrame = null;
+  pendingSceneFrame = null;
   selectedTokenIds.clear();
   refreshTokenToolbar();
 }
@@ -919,6 +1002,12 @@ function fitCamera(frame: SceneFrame): void {
   const width = Math.max(frame.width * WORLD_UNITS_PER_PIXEL, 3);
   const height = Math.max(frame.height * WORLD_UNITS_PER_PIXEL, 3);
   const distance = Math.max(width, height) * 1.15 + 5;
+  controls.maxDistance = Math.max(80, distance * 2.5);
+  const requiredFar = Math.max(250, distance * 10);
+  if (camera.far < requiredFar) {
+    camera.far = requiredFar;
+    camera.updateProjectionMatrix();
+  }
   camera.position.set(distance * 0.65, distance * 0.85, distance * 0.72);
   controls.target.set(0, 0, 0);
   controls.update();
@@ -1018,7 +1107,8 @@ async function loadScene(): Promise<void> {
     const safe = await checkFogSafety(items, isCurrent);
     if (!isCurrent()) return;
     if (safe) {
-      syncScene(items);
+      await syncSceneWithResolvedFrame(items, isCurrent);
+      if (!isCurrent()) return;
       // A primeira leitura da seleção pode terminar antes da criação dos meshes.
       // Releia depois do render inicial para refletir também seleções feitas no 2D.
       const selection = await OBR.player.getSelection();
@@ -1034,8 +1124,11 @@ async function loadScene(): Promise<void> {
 
 function findTokenAtPointer(event: PointerEvent): RenderRecord | null {
   const rect = renderer.domElement.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  camera.updateMatrixWorld(true);
+  worldRoot.updateMatrixWorld(true);
   raycaster.setFromCamera(pointer, camera);
   const tokenMeshes: THREE.Object3D[] = [];
   for (const record of records.values()) {
@@ -2339,8 +2432,15 @@ if (!OBR.isAvailable) {
       refreshTokenToolbar();
     });
     unsubscribeGrid = OBR.scene.grid.onChange(() => {
+      const requestVersion = ++sceneOperationVersion;
       void refreshGridSettings().then(() => {
-        if (!blockedByFog && currentItems.length > 0) syncScene(currentItems);
+        if (requestVersion === sceneOperationVersion && !blockedByFog && currentItems.length > 0) {
+          return syncSceneWithResolvedFrame(currentItems, () => requestVersion === sceneOperationVersion);
+        }
+      }).catch((error) => {
+        if (requestVersion !== sceneOperationVersion) return;
+        console.error("[Sistema 3D] Falha ao atualizar o enquadramento após mudança da grade:", error);
+        setStatus("Erro ao atualizar a escala da cena", "error");
       });
     });
     void refreshGridSettings();
@@ -2376,12 +2476,16 @@ if (!OBR.isAvailable) {
       // Token movement emits frequent full-scene snapshots. Only re-query Fog
       // and role state when visibility blockers may have changed.
       if (!blockedByFog && !hasVisionBlockingItems(items)) {
-        syncScene(items);
+        void syncSceneWithResolvedFrame(items, isCurrent).catch((error) => {
+          if (!isCurrent()) return;
+          console.error("[Sistema 3D] Erro ao resolver os limites do mapa:", error);
+          setStatus("Erro ao posicionar os elementos da cena", "error");
+        });
         return;
       }
 
       void checkFogSafety(items, isCurrent).then((safe) => {
-        if (isCurrent() && safe) syncScene(items);
+        if (isCurrent() && safe) return syncSceneWithResolvedFrame(items, isCurrent);
       }).catch((error) => {
         if (!isCurrent()) return;
         console.error("[Sistema 3D] Erro ao sincronizar alterações da cena:", error);

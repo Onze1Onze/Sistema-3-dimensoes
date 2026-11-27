@@ -21,6 +21,7 @@ export function createImageMaterial(
       side: THREE.DoubleSide,
       depthWrite: false,
       toneMapped: false,
+      fog: false,
     });
   }
 

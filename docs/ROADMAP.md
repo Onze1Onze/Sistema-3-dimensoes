@@ -1,5 +1,14 @@
 # Roteiro de desenvolvimento
 
+## Versão 1.2.2 — Enquadramento oficial da cena e visibilidade dos tokens
+
+- [x] Usar `OBR.scene.items.getItemBounds` para obter os limites transformados reais dos mapas.
+- [x] Manter o enquadramento em cache e recalculá-lo apenas quando a geometria do mapa ou o DPI da cena mudar.
+- [x] Manter fallback de cálculo local caso o SDK não retorne os limites.
+- [x] Desativar Fog no material não iluminado dos tokens para que miniaturas não desapareçam na névoa visual do Three.js.
+- [x] Atualizar os limites de distância e clipping da câmera conforme o tamanho real da cena.
+- [x] Adicionar testes de regressão para o enquadramento obtido por bounds oficiais.
+
 ## Versão 1.2.1 — Correção de posicionamento e renderização de tokens
 
 - [x] Corrigir a orientação do eixo vertical entre coordenadas do Owlbear e o chão 3D.
