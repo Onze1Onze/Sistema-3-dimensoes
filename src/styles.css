@@ -21,7 +21,7 @@ button { font: inherit; }
 .primary-button:disabled { cursor: not-allowed; opacity: .45; }
 .footnote { color: #718096; margin: 16px 0 0; font-size: 10px; text-align: center; }
 .viewer-body { background: #101722; touch-action: none; }
-#scene-canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+#scene-canvas { display: block; width: 100%; height: 100%; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; outline: none; }
 .viewer-topbar { position: absolute; z-index: 5; top: 12px; left: 12px; right: 12px; min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 10px 9px 13px; border: 1px solid #ffffff1c; border-radius: 13px; background: #111a27dc; backdrop-filter: blur(16px); box-shadow: 0 8px 28px #0005; }
 .viewer-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .mini-mark { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; color: #101a2a; background: #9bc3ff; font: 700 13px 'Segoe UI', system-ui, sans-serif; }
@@ -50,7 +50,7 @@ kbd { padding: 2px 4px; border: 1px solid #ffffff2c; border-radius: 4px; backgro
   .top-actions { width: 100%; }
   .tool-button { flex: 1; }
   .viewer-bottom-left { bottom: 12px; left: 10px; font-size: 9px; gap: 5px; }
-  .viewer-help { display: none; }
+  .viewer-help { display: block; left: 10px; right: 10px; bottom: 62px; text-align: center; font-size: 9px; }
 }
 
 .token-toolbar {
