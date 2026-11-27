@@ -765,6 +765,10 @@ function updateFireEffects(time: number): void {
 }
 
 function clearWorld(): void {
+  sceneToolGesture = null;
+  clearToolPreview();
+  if (measureReadout) measureReadout.hidden = true;
+  controls.enabled = true;
   for (const record of records.values()) {
     record.object.removeFromParent();
     disposeRecord(record);
