@@ -15,6 +15,7 @@ export class PointerDragGesture {
   moved = false;
   released = false;
   cancelled = false;
+  startRequested = false;
 
   constructor(pointerId: number, start: PointerPoint) {
     this.pointerId = pointerId;
@@ -37,6 +38,16 @@ export class PointerDragGesture {
     if (this.cancelled || this.released) return;
     this.move(point);
     this.released = true;
+  }
+
+  /**
+   * Solicita o início do arraste uma única vez, somente depois que o ponteiro
+   * ultrapassou o limiar de movimento. Também pode ser chamado após release.
+   */
+  requestStart(): boolean {
+    if (!this.shouldMove || this.cancelled || this.startRequested) return false;
+    this.startRequested = true;
+    return true;
   }
 
   cancel(): void {
