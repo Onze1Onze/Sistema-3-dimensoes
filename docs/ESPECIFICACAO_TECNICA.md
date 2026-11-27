@@ -1,12 +1,12 @@
 # Especificação técnica — Owlbear 3D
 
-**Versão do produto:** 1.1.0  
+**Versão do produto:** 1.1.1  
 **Estado:** implementação em evolução; este documento registra a arquitetura e as limitações conhecidas.  
 **Objetivo:** abrir uma visualização tridimensional da cena atual do Owlbear Rodeo, usando o Owlbear como fonte oficial dos dados e um renderizador Three.js independente.
 
 > O arraste de miniaturas no plano do tabuleiro está implementado para toque, caneta e mouse. A representação das miniaturas continua sendo 2.5D (billboards verticais); elevação vertical livre, modelos volumétricos e movimento entre andares não fazem parte desta versão.
 >
-> A versão 1.1.0 adiciona ferramentas no próprio modal 3D: seleção, navegação, medição por `OBR.scene.grid.getDistance`, marcador livre, linha, retângulo, círculo, texto e fogo visual. As ferramentas de desenho, anotação e régua usam builders oficiais e criam itens nas camadas nativas do Owlbear. O fogo é representado por um item de área com metadata namespaced e partículas locais no renderizador 3D; ele não cria um item `LIGHT` e não participa da iluminação/Fog of War. Ferramentas e painéis de extensões externas não podem ser enumerados nem incorporados automaticamente porque o SDK não expõe uma API pública para isso.
+> A versão 1.1.1 adiciona ferramentas no próprio modal 3D: seleção, navegação, medição por `OBR.scene.grid.getDistance`, marcador livre, linha, retângulo, círculo, texto e fogo visual. As ferramentas de desenho, anotação e régua usam builders oficiais e criam itens nas camadas nativas do Owlbear. O fogo é representado por um item de área com metadata namespaced e partículas locais no renderizador 3D; ele não cria um item `LIGHT` e não participa da iluminação/Fog of War. Ferramentas e painéis de extensões externas não podem ser enumerados nem incorporados automaticamente porque o SDK não expõe uma API pública para isso.
 
 ---
 
@@ -220,33 +220,37 @@ Esta é uma das partes mais importantes do projeto. Um erro aqui faz os tokens s
 - `x` do Owlbear vira `x` no Three.js.
 - `y` do Owlbear vira `-z` no Three.js, para que o eixo vertical do mapa corresponda ao eixo de profundidade do chão.
 - `y` do Three.js representa altura física.
-- Uma célula quadrada da grade vale 1 unidade 3D.
+- O espaço 3D usa `0.01` unidade por pixel de mundo da cena. O tamanho de uma célula em unidades 3D, portanto, depende do DPI da grade da cena.
 
 Definir uma origem estável da cena, preferencialmente a posição do mapa principal. A origem nunca deve ser recalculada durante o arraste de uma miniatura.
 
 ### Conversão de posição
 
-Se `D` é o DPI da grade da cena, `O` é a origem 2D e `P` é uma posição do Owlbear:
+Se `F` é o centro do enquadramento calculado a partir dos mapas visíveis e `P` é uma posição do Owlbear, o código utiliza:
 
-`x3D = (P.x - O.x) / D`
+`x3D = (P.x - F.x) * 0.01`
 
-`z3D = -(P.y - O.y) / D`
+`z3D = -(P.y - F.y) * 0.01`
 
 `y3D = elevation`, inicialmente igual a zero.
 
 A conversão inversa é:
 
-`xOBR = O.x + x3D * D`
+`xOBR = F.x + x3D / 0.01`
 
-`yOBR = O.y - z3D * D`
+`yOBR = F.y - z3D / 0.01`
+
+O tamanho de cada imagem precisa ser convertido da resolução do próprio arquivo para a resolução da cena antes da escala 3D:
+
+`size3D = imageSize * itemScale * (sceneDpi / imageGridDpi) * 0.01`
+
+Se o DPI da imagem estiver ausente ou inválido, o adaptador usa fator neutro e mantém a cena funcional, sem dividir por zero.
 
 O resultado inverso deve ser passado por `OBR.scene.grid.snapPosition` quando o ajuste à grade estiver habilitado.
 
 ### Tamanho e âncora de imagens
 
-Não assumir que toda imagem tem seu ponto de ancoragem no centro. Cada Image do Owlbear contém `image.width`, `image.height` e `grid` com `dpi` e `offset`. O campo `offset` é documentado como uma coleção de vetores relativos às dimensões da imagem; portanto, o renderizador não pode presumir que exista apenas um ponto de ancoragem nem que todas as imagens estejam centralizadas. O tamanho e a âncora do plano 3D precisam ser derivados desses dados e da escala do item.
-
-Antes de fixar a transformação final, o protótipo deve validar imagens com offset central, offset deslocado e múltiplos offsets em uma sala real. O plano não pode ser centralizado arbitrariamente se isso alterar o alinhamento que o Owlbear apresenta.
+O tamanho visual do plano deve respeitar `image.width`, `image.height`, `item.scale`, o DPI da própria imagem e o DPI da cena. O campo `image.grid.offset` representa o alinhamento da grade sobre a imagem, e não deve ser subtraído da posição espacial do item como se fosse um ponto de ancoragem visual. A posição do item permanece a referência espacial do mesh. A correspondência de alinhamento de grade deve ser testada separadamente, sobretudo para imagens com offsets personalizados.
 
 A rotação do Owlbear é em graus. O sinal da rotação deve ser validado com um teste de 0°, 90° e 180°, pois a conversão do eixo vertical 2D para o eixo Z 3D pode inverter o sentido.
 
@@ -382,8 +386,8 @@ Portanto:
 
 1. O MVP deve ser tratado como protótipo e testado primeiro pelo mestre.
 2. A primeira experiência multiplayer só deve ser usada em cenas cujo mapa inteiro já possa ser visto pelos jogadores, ou em mapas sem informação secreta fora da área explorada.
-3. O visualizador sempre deve filtrar itens com `visible === false`.
-4. A extensão deve consultar `OBR.player` e as permissões disponibilizadas pela sala, mas nunca presumir que a leitura dessas permissões substitui a validação do próprio Owlbear ao atualizar um item.
+3. O visualizador sempre deve filtrar itens com `visible === false`. Enquanto não houver um modelo de oclusão, qualquer item nas camadas `FOG` ou dos tipos `WALL` e `LIGHT` bloqueia o modo 3D, independentemente de sua propriedade `visible`.
+4. A extensão deve consultar `OBR.player` e as permissões disponibilizadas pela sala, incluindo `CHARACTER_OWNER_ONLY` e o proprietário indicado por `createdUserId`, mas nunca presumir que a leitura dessas permissões substitui a validação do próprio Owlbear ao atualizar um item.
 5. A extensão não deve afirmar compatibilidade com Dynamic Fog até implementar e testar uma máscara de visibilidade própria no renderer 3D.
 6. Antes de distribuir a extensão, testar explicitamente o que cada função do SDK devolve para um jogador comum quando existem itens ocultos, camadas ocultas, paredes e regiões cobertas.
 

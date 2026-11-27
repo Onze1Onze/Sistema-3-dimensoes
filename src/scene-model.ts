@@ -36,9 +36,10 @@ export function getSceneCounts(items: Item[]): SceneCounts {
   };
 }
 
-function imageHalfExtents(item: OBRImage): { x: number; y: number } {
-  const width = Math.abs(item.image.width * item.scale.x);
-  const height = Math.abs(item.image.height * item.scale.y);
+function imageHalfExtents(item: OBRImage, sceneDpi: number): { x: number; y: number } {
+  const size = getImageWorldSize(item, sceneDpi);
+  const width = size.width / WORLD_UNITS_PER_PIXEL;
+  const height = size.height / WORLD_UNITS_PER_PIXEL;
   const angle = (item.rotation * Math.PI) / 180;
   const cos = Math.abs(Math.cos(angle));
   const sin = Math.abs(Math.sin(angle));
@@ -48,7 +49,7 @@ function imageHalfExtents(item: OBRImage): { x: number; y: number } {
   };
 }
 
-export function calculateSceneFrame(items: Item[]): SceneFrame | null {
+export function calculateSceneFrame(items: Item[], sceneDpi = 100): SceneFrame | null {
   const maps = getSceneImages(items).filter(
     (item) => item.layer === "MAP" && item.image.mime.startsWith("image/") && item.image.width > 0 && item.image.height > 0,
   );
@@ -60,7 +61,7 @@ export function calculateSceneFrame(items: Item[]): SceneFrame | null {
   let maxY = Number.NEGATIVE_INFINITY;
 
   for (const map of maps) {
-    const half = imageHalfExtents(map);
+    const half = imageHalfExtents(map, sceneDpi);
     minX = Math.min(minX, map.position.x - half.x);
     minY = Math.min(minY, map.position.y - half.y);
     maxX = Math.max(maxX, map.position.x + half.x);
@@ -95,10 +96,18 @@ export function worldToMap(x: number, z: number, frame: SceneFrame): { x: number
   };
 }
 
-export function getImageWorldSize(item: OBRImage): { width: number; height: number } {
+/**
+ * Converts source-image pixels to Owlbear scene pixels before applying the
+ * 3D scale. An image's grid DPI describes the pixel density of that asset;
+ * the scene DPI describes the pixel density of the active tabletop grid.
+ */
+export function getImageWorldSize(item: OBRImage, sceneDpi = 100): { width: number; height: number } {
+  const targetDpi = Number.isFinite(sceneDpi) && sceneDpi > 0 ? sceneDpi : 100;
+  const sourceDpi = Number(item.grid?.dpi);
+  const dpiRatio = Number.isFinite(sourceDpi) && sourceDpi > 0 ? targetDpi / sourceDpi : 1;
   return {
-    width: Math.max(0.01, Math.abs(item.image.width * item.scale.x) * WORLD_UNITS_PER_PIXEL),
-    height: Math.max(0.01, Math.abs(item.image.height * item.scale.y) * WORLD_UNITS_PER_PIXEL),
+    width: Math.max(0.01, Math.abs(item.image.width * item.scale.x * dpiRatio) * WORLD_UNITS_PER_PIXEL),
+    height: Math.max(0.01, Math.abs(item.image.height * item.scale.y * dpiRatio) * WORLD_UNITS_PER_PIXEL),
   };
 }
 

@@ -9,6 +9,9 @@ import OBR, {
 } from "@owlbear-rodeo/sdk";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { Line2 } from "three/addons/lines/Line2.js";
+import { LineGeometry } from "three/addons/lines/LineGeometry.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import {
   calculateSceneFrame,
   getImageWorldSize,
@@ -21,12 +24,13 @@ import {
   WORLD_UNITS_PER_PIXEL,
 } from "./scene-model";
 import {
+  canModifyCharacter,
   nextTokenSelection,
   normalizeRotation,
   translateTokenPositions,
 } from "./token-interaction";
 import { PointerDragGesture } from "./pointer-gesture";
-import { filterSceneStrokePoints, formatGridDistance, getSceneToolBounds, type ScenePoint } from "./scene-tools";
+import { filterSceneStrokePoints, formatGridDistance, getSceneShapeVertices, getSceneToolBounds, type ScenePoint, type SceneShapeTool } from "./scene-tools";
 import "./styles.css";
 
 const MODAL_ID = "com.onze1onze.sistema-3-dimensoes/viewer";
@@ -134,6 +138,7 @@ interface RenderRecord {
   width: number;
   height: number;
   material: THREE.MeshStandardMaterial;
+  itemRotation: number;
   selectionRing?: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
 }
 
@@ -196,6 +201,10 @@ const records = new Map<string, RenderRecord>();
 const drawingRecords = new Map<string, DrawingRecord>();
 const fireEffects = new Map<string, FireEffect>();
 const textures = new Map<string, THREE.Texture>();
+const pendingTextures = new Map<string, Promise<THREE.Texture>>();
+let viewerDisposed = false;
+const notifiedTextureFailures = new Set<string>();
+const wideLineMaterials = new Set<LineMaterial>();
 let currentItems: Item[] = [];
 let currentFrame: SceneFrame | null = null;
 let dragState: DragState | null = null;
@@ -211,6 +220,10 @@ let lastCreatedSceneItemIds: string[] = [];
 let gridDpi = 100;
 let gridScaleInfo: { multiplier: number; unit: string; digits: number } | null = null;
 let sceneOperationVersion = 0;
+let sceneSessionVersion = 0;
+let gridSettingsVersion = 0;
+let animationFrameId = 0;
+let animationRunning = true;
 let lastToastTimer = 0;
 let unsubscribeItems: (() => void) | null = null;
 let unsubscribeFog: (() => void) | null = null;
@@ -297,24 +310,37 @@ function getTexture(url: string, onLoad: (texture: THREE.Texture) => void, onErr
     onLoad(cached);
     return;
   }
-  textureLoader.load(
-    url,
-    (texture: THREE.Texture) => {
+
+  // Several tokens often share the same image URL. Reuse the in-flight request
+  // rather than downloading and allocating one GPU texture per token.
+  let request = pendingTextures.get(url);
+  if (!request) {
+    request = new Promise<THREE.Texture>((resolve, reject) => {
+      textureLoader.load(url, resolve, undefined, reject);
+    }).then((texture) => {
+      if (viewerDisposed) {
+        texture.dispose();
+        return texture;
+      }
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
       textures.set(url, texture);
-      onLoad(texture);
-    },
-    undefined,
-    (error: unknown) => {
-      console.warn("[Sistema 3D] Não foi possível carregar uma textura. Verifique o CORS do arquivo.", error);
-      onError();
-    },
-  );
+      return texture;
+    }).finally(() => {
+      pendingTextures.delete(url);
+    });
+    pendingTextures.set(url, request);
+  }
+
+  void request.then(onLoad, (error: unknown) => {
+    if (viewerDisposed) return;
+    console.warn("[Sistema 3D] Não foi possível carregar uma textura. Verifique o CORS do arquivo.", error);
+    onError();
+  });
 }
 
 function createRecord(item: OBRImage, kind: "map" | "token" | "prop"): RenderRecord {
-  const worldSize = getImageWorldSize(item);
+  const worldSize = getImageWorldSize(item, gridDpi);
   const geometry = new THREE.PlaneGeometry(worldSize.width, worldSize.height);
   const material = new THREE.MeshStandardMaterial({
     map: placeholderTexture,
@@ -350,7 +376,16 @@ function createRecord(item: OBRImage, kind: "map" | "token" | "prop"): RenderRec
   }
   const parent = kind === "map" ? mapRoot : kind === "token" ? tokenRoot : propRoot;
   parent.add(object);
-  const record: RenderRecord = { object, mesh, url: item.image.url, width: worldSize.width, height: worldSize.height, material, selectionRing };
+  const record: RenderRecord = {
+    object,
+    mesh,
+    url: item.image.url,
+    width: worldSize.width,
+    height: worldSize.height,
+    material,
+    itemRotation: item.rotation,
+    selectionRing,
+  };
   // Registre antes de consultar o cache: em cache hit o callback é síncrono.
   records.set(item.id, record);
   getTexture(item.image.url, (texture) => {
@@ -360,7 +395,10 @@ function createRecord(item: OBRImage, kind: "map" | "token" | "prop"): RenderRec
       current.material.needsUpdate = true;
     }
   }, () => {
-    notify(`Não foi possível carregar a imagem: ${item.name || "item sem nome"}`);
+    if (!notifiedTextureFailures.has(item.image.url)) {
+      notifiedTextureFailures.add(item.image.url);
+      notify(`Não foi possível carregar a imagem: ${item.name || "item sem nome"}`);
+    }
   });
   return record;
 }
@@ -375,7 +413,8 @@ function classifyImage(item: OBRImage): "map" | "token" | "prop" | null {
 
 function updateRecord(item: OBRImage, record: RenderRecord, kind: "map" | "token" | "prop", frame: SceneFrame): void {
   const position = mapToWorld(item.position.x, item.position.y, frame);
-  const size = getImageWorldSize(item);
+  const size = getImageWorldSize(item, gridDpi);
+  record.itemRotation = item.rotation;
   record.object.position.set(position.x, kind === "token" ? 0 : kind === "map" ? 0 : 0.018, position.z);
   record.object.rotation.set(0, THREE.MathUtils.degToRad(item.rotation), 0);
   record.mesh.scale.set(1, 1, 1);
@@ -429,7 +468,7 @@ function syncScene(items: Item[]): void {
   if (blockedByFog) return;
   currentItems = items;
   const images = getSceneImages(items).filter((item) => classifyImage(item) !== null);
-  const frame = calculateSceneFrame(items);
+  const frame = calculateSceneFrame(items, gridDpi);
   updateCounts(items);
   if (!frame) {
     clearWorld();
@@ -486,61 +525,121 @@ function syncScene(items: Item[]): void {
 
 function disposeObjectTree(object: THREE.Object3D): void {
   object.traverse((child) => {
-    const renderable = child as THREE.Mesh | THREE.Line;
+    const renderable = child as THREE.Mesh | THREE.Line | Line2;
     if ("geometry" in renderable && renderable.geometry) renderable.geometry.dispose();
     if ("material" in renderable && renderable.material) {
       const materials = Array.isArray(renderable.material) ? renderable.material : [renderable.material];
       materials.forEach((material) => {
         const map = (material as THREE.Material & { map?: THREE.Texture | null }).map;
         map?.dispose();
+        if (material instanceof LineMaterial) wideLineMaterials.delete(material);
         material.dispose();
       });
     }
   });
 }
 
-function createPolyline(points: ScenePoint[], color: string, opacity = 1): THREE.Line | null {
-  if (points.length < 2 || !currentFrame) return null;
-  const vertices = points.map((point) => {
-    const world = mapToWorld(point.x, point.y, currentFrame!);
-    return new THREE.Vector3(world.x, 0.045, world.z);
-  });
-  const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
-  const material = new THREE.LineBasicMaterial({
+/** Wide lines render consistently in WebGL, unlike LineBasicMaterial.linewidth. */
+function createWorldPolyline(
+  vertices: THREE.Vector3[],
+  color: string,
+  opacity = 1,
+  strokeWidth = 3,
+): Line2 | null {
+  if (vertices.length < 2) return null;
+  const geometry = new LineGeometry();
+  geometry.setPositions(vertices.flatMap((point) => [point.x, point.y, point.z]));
+  const material = new LineMaterial({
     color,
+    linewidth: Math.max(1, strokeWidth),
     transparent: opacity < 1,
     opacity,
     depthWrite: false,
     toneMapped: false,
   });
-  const line = new THREE.Line(geometry, material);
+  material.resolution.set(window.innerWidth, window.innerHeight);
+  wideLineMaterials.add(material);
+  const line = new Line2(geometry, material);
+  line.computeLineDistances();
   line.renderOrder = 12000;
   return line;
 }
 
+function createPolyline(
+  points: ScenePoint[],
+  color: string,
+  opacity = 1,
+  strokeWidth = 3,
+): Line2 | null {
+  if (points.length < 2 || !currentFrame) return null;
+  const vertices = points.map((point) => {
+    const world = mapToWorld(point.x, point.y, currentFrame!);
+    return new THREE.Vector3(world.x, 0.045, world.z);
+  });
+  return createWorldPolyline(vertices, color, opacity, strokeWidth);
+}
+
 function createTextSprite(text: string, color = "#ffffff"): THREE.Sprite {
   const canvasText = document.createElement("canvas");
-  canvasText.width = 512;
-  canvasText.height = 128;
+  const canvasWidth = 720;
+  const padding = 28;
+  const fontSize = 34;
+  const lineHeight = 42;
+  canvasText.width = canvasWidth;
   const context = canvasText.getContext("2d");
+  const lines: string[] = [];
+
   if (context) {
+    context.font = `bold ${fontSize}px Segoe UI, sans-serif`;
+    const maxTextWidth = canvasWidth - padding * 2;
+    for (const paragraph of text.split(/\r?\n/)) {
+      const words = paragraph.split(/\s+/).filter(Boolean);
+      if (words.length === 0) {
+        lines.push("");
+        continue;
+      }
+      let line = "";
+      for (const word of words) {
+        const candidate = line ? `${line} ${word}` : word;
+        if (context.measureText(candidate).width <= maxTextWidth) {
+          line = candidate;
+          continue;
+        }
+        if (line) lines.push(line);
+        line = word;
+        while (context.measureText(line).width > maxTextWidth && line.length > 1) {
+          let splitAt = line.length - 1;
+          while (splitAt > 1 && context.measureText(line.slice(0, splitAt)).width > maxTextWidth) splitAt -= 1;
+          lines.push(line.slice(0, splitAt));
+          line = line.slice(splitAt);
+        }
+      }
+      if (line) lines.push(line);
+    }
+    const safeLines = lines.length ? lines : [""];
+    canvasText.height = Math.max(92, padding * 2 + safeLines.length * lineHeight);
+    context.font = `bold ${fontSize}px Segoe UI, sans-serif`;
     context.fillStyle = "#111a27e8";
     context.strokeStyle = "#9bc3ff";
-    context.lineWidth = 5;
-    context.roundRect(5, 5, 502, 118, 22);
+    context.lineWidth = 4;
+    if (typeof context.roundRect === "function") context.roundRect(4, 4, canvasWidth - 8, canvasText.height - 8, 18);
+    else context.rect(4, 4, canvasWidth - 8, canvasText.height - 8);
     context.fill();
     context.stroke();
     context.fillStyle = color;
-    context.font = "bold 42px Segoe UI, sans-serif";
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.fillText(text.slice(0, 40), 256, 64, 470);
+    safeLines.forEach((line, index) => {
+      context.fillText(line, canvasWidth / 2, padding + lineHeight * (index + 0.5), maxTextWidth);
+    });
   }
+
   const texture = new THREE.CanvasTexture(canvasText);
   texture.colorSpace = THREE.SRGBColorSpace;
   const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, toneMapped: false });
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(1.25, 0.31, 1);
+  const width = 1.25;
+  sprite.scale.set(width, width * (canvasText.height / canvasWidth), 1);
   sprite.renderOrder = 13000;
   return sprite;
 }
@@ -661,12 +760,16 @@ function createDrawingObject(item: Item, frame: SceneFrame): THREE.Object3D | nu
     group.add(mesh);
     const outlinePoints = shape.getPoints(48).map((point) => new THREE.Vector3(point.x, 0.05, -point.y));
     if (outlinePoints.length > 1) {
-      outlinePoints.push(outlinePoints[0].clone());
-      const outline = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(outlinePoints),
-        new THREE.LineBasicMaterial({ color: String(style.strokeColor ?? "#8bb8ff"), transparent: true, opacity: Number(style.strokeOpacity ?? 1), depthWrite: false }),
+      if (outlinePoints[0].distanceTo(outlinePoints[outlinePoints.length - 1]) > 1e-6) {
+        outlinePoints.push(outlinePoints[0].clone());
+      }
+      const outline = createWorldPolyline(
+        outlinePoints,
+        String(style.strokeColor ?? "#8bb8ff"),
+        Number(style.strokeOpacity ?? 1),
+        Number(style.strokeWidth ?? 3),
       );
-      group.add(outline);
+      if (outline) group.add(outline);
     }
     if (data.position) {
       const world = mapToWorld(data.position.x, data.position.y, frame);
@@ -680,7 +783,12 @@ function createDrawingObject(item: Item, frame: SceneFrame): THREE.Object3D | nu
     if (!data.startPosition || !data.endPosition) return null;
     const color = data.type === "RULER" ? "#9bc3ff" : String(data.style?.strokeColor ?? "#8bb8ff");
     const points = [data.startPosition, data.endPosition];
-    const line = createPolyline(points, color, Number(data.style?.strokeOpacity ?? 1));
+    const line = createPolyline(
+      points,
+      color,
+      Number(data.style?.strokeOpacity ?? 1),
+      Number(data.style?.strokeWidth ?? (data.type === "RULER" ? 2 : 3)),
+    );
     if (!line) return null;
     const group = new THREE.Group();
     group.add(line);
@@ -697,7 +805,12 @@ function createDrawingObject(item: Item, frame: SceneFrame): THREE.Object3D | nu
   if (data.type === "CURVE" && data.points?.length) {
     const points = data.points;
     const style = data.style ?? {};
-    const line = createPolyline(points, String(style.strokeColor ?? "#8bb8ff"), Number(style.strokeOpacity ?? 1));
+    const line = createPolyline(
+      points,
+      String(style.strokeColor ?? "#8bb8ff"),
+      Number(style.strokeOpacity ?? 1),
+      Number(style.strokeWidth ?? 3),
+    );
     if (!line) return null;
     const group = new THREE.Group();
     group.add(line);
@@ -817,24 +930,26 @@ function fitCamera(frame: SceneFrame): void {
 }
 
 async function refreshGridSettings(): Promise<void> {
+  const requestVersion = ++gridSettingsVersion;
   try {
-    const [dpi, scale] = await Promise.all([
+    const [dpi, scale, measurement] = await Promise.all([
       OBR.scene.grid.getDpi(),
       OBR.scene.grid.getScale(),
+      OBR.scene.grid.getMeasurement(),
     ]);
+    if (requestVersion !== gridSettingsVersion) return;
     if (Number.isFinite(dpi) && dpi > 0) gridDpi = dpi;
-    const parsed = scale?.parsed;
+    const measurementNames: Record<string, string> = {
+      CHEBYSHEV: "xadrez",
+      ALTERNATING: "diagonal alternada",
+      EUCLIDEAN: "euclidiana",
+      MANHATTAN: "Manhattan",
+    };
     const gridInfo = document.querySelector<HTMLElement>("#grid-measurement-info");
     if (gridInfo) {
-      const measurement = await OBR.scene.grid.getMeasurement();
-      const measurementNames: Record<string, string> = {
-        CHEBYSHEV: "xadrez",
-        ALTERNATING: "diagonal alternada",
-        EUCLIDEAN: "euclidiana",
-        MANHATTAN: "Manhattan",
-      };
       gridInfo.textContent = `Grade: ${scale?.raw ?? "sem escala"} · Medição: ${measurementNames[measurement] ?? measurement}`;
     }
+    const parsed = scale?.parsed;
     if (parsed) {
       gridScaleInfo = {
         multiplier: Number(parsed.multiplier) || 1,
@@ -845,20 +960,28 @@ async function refreshGridSettings(): Promise<void> {
       gridScaleInfo = null;
     }
   } catch (error) {
+    if (requestVersion !== gridSettingsVersion) return;
     console.warn("[Sistema 3D] Não foi possível ler a configuração da grade:", error);
     gridScaleInfo = null;
   }
 }
 
+function hasVisionBlockingItems(items: Item[]): boolean {
+  // Without a 3D visibility/occlusion implementation, even hidden vision items
+  // are treated as blockers. Their hidden flag is not proof that they are inert.
+  return items.some((item) =>
+    item.layer === "FOG" || item.type === "WALL" || item.type === "LIGHT",
+  );
+}
+
 async function checkFogSafety(items: Item[], isCurrent: () => boolean = () => true): Promise<boolean> {
   const playerRole = await OBR.player.getRole();
   if (!isCurrent()) return false;
+  currentPlayerRole = playerRole;
+  refreshTokenToolbar();
   const fogFilled = await OBR.scene.fog.getFilled();
   if (!isCurrent()) return false;
-  const visibilityItems = items.some((item) =>
-    (item.layer === "FOG" || item.type === "WALL" || item.type === "LIGHT") && item.visible !== false,
-  );
-  const isFogScene = fogFilled || visibilityItems;
+  const isFogScene = fogFilled || hasVisionBlockingItems(items);
   if (isFogScene) {
     blockedByFog = true;
     endTokenDrag();
@@ -1007,7 +1130,7 @@ function setActiveSceneTool(tool: SceneTool): void {
   });
   canvas?.classList.toggle("tool-active", !["select", "pan"].includes(tool));
   canvas?.classList.toggle("tool-pan", tool === "pan");
-  sceneToolsDock?.classList.toggle("tool-drawing-mode", ["measure", "marker", "line", "rectangle", "circle", "fire", "text"].includes(tool));
+  sceneToolsDock?.classList.toggle("tool-drawing-mode", ["measure", "marker", "brush", "line", "rectangle", "circle", "triangle", "hexagon", "fire", "text"].includes(tool));
   updateToolSettingsPanel();
   if (["select", "pan"].includes(tool)) {
     closeToolPanels();
@@ -1055,52 +1178,112 @@ function updateMeasureReadout(start: ScenePoint, end: ScenePoint, gesture: Scene
 function updateSceneToolPreview(gesture: SceneToolGesture): void {
   clearToolPreview();
   const settings = readDrawingSettings();
-  const points = gesture.tool === "marker"
+  const frame = currentFrame;
+  if (!frame) return;
+
+  const markerPoints = gesture.tool === "marker"
     ? filterSceneStrokePoints(gesture.points, 3)
     : [gesture.start, gesture.current];
-  if (gesture.tool === "measure" || gesture.tool === "line" || gesture.tool === "marker" || gesture.tool === "brush") {
-    const line = createPolyline(points, gesture.tool === "measure" ? "#9bc3ff" : settings.stroke, 0.95);
+
+  if (gesture.tool === "measure" || gesture.tool === "line" || gesture.tool === "marker") {
+    const line = createPolyline(
+      markerPoints,
+      gesture.tool === "measure" ? "#9bc3ff" : settings.stroke,
+      0.95,
+      gesture.tool === "measure" ? 2 : settings.width,
+    );
     if (line) previewRoot.add(line);
     if (gesture.tool === "measure") updateMeasureReadout(gesture.start, gesture.current, gesture);
     return;
   }
+
+  if (gesture.tool === "brush") {
+    const brushPoints = filterSceneStrokePoints(gesture.points, 3);
+    if (brushPoints.length >= 3) {
+      const anchor = brushPoints[0];
+      const anchorWorld = mapToWorld(anchor.x, anchor.y, frame);
+      const shape = new THREE.Shape();
+      brushPoints.forEach((point, index) => {
+        const x = (point.x - anchor.x) * WORLD_UNITS_PER_PIXEL;
+        const y = (point.y - anchor.y) * WORLD_UNITS_PER_PIXEL;
+        if (index === 0) shape.moveTo(x, y);
+        else shape.lineTo(x, y);
+      });
+      shape.closePath();
+      const fill = new THREE.Mesh(
+        new THREE.ShapeGeometry(shape),
+        new THREE.MeshBasicMaterial({ color: settings.fill, transparent: true, opacity: Math.max(0.08, settings.opacity), side: THREE.DoubleSide, depthWrite: false, toneMapped: false }),
+      );
+      fill.rotation.x = -Math.PI / 2;
+      fill.position.set(anchorWorld.x, 0.055, anchorWorld.z);
+      previewRoot.add(fill);
+      const outline = createPolyline([...brushPoints, brushPoints[0]], settings.stroke, 1, settings.width);
+      if (outline) previewRoot.add(outline);
+    } else {
+      const line = createPolyline(brushPoints, settings.stroke, 0.95, settings.width);
+      if (line) previewRoot.add(line);
+    }
+    return;
+  }
+
+  if (!["rectangle", "circle", "triangle", "hexagon"].includes(gesture.tool)) return;
+  const shapeTool = gesture.tool as SceneShapeTool;
   const bounds = getSceneToolBounds(gesture.start, gesture.current);
-  const center = mapToWorld(bounds.center.x, bounds.center.y, currentFrame!);
-  const width = bounds.width * WORLD_UNITS_PER_PIXEL;
-  const height = bounds.height * WORLD_UNITS_PER_PIXEL;
-  const geometry = gesture.tool === "circle"
-    ? new THREE.CircleGeometry(Math.max(width, height) / 2, 48)
-    : new THREE.PlaneGeometry(width, height);
+  const center = mapToWorld(bounds.center.x, bounds.center.y, frame);
+  const worldWidth = bounds.width * WORLD_UNITS_PER_PIXEL;
+  const worldHeight = bounds.height * WORLD_UNITS_PER_PIXEL;
+  const vertices = getSceneShapeVertices(shapeTool, gesture.start, gesture.current);
+  let geometry: THREE.BufferGeometry;
+
+  if (shapeTool === "circle") {
+    geometry = new THREE.CircleGeometry(Math.max(worldWidth, worldHeight) / 2, 48);
+  } else {
+    const shape = new THREE.Shape();
+    vertices.slice(0, -1).forEach((point, index) => {
+      const x = (point.x - bounds.center.x) * WORLD_UNITS_PER_PIXEL;
+      const y = (point.y - bounds.center.y) * WORLD_UNITS_PER_PIXEL;
+      if (index === 0) shape.moveTo(x, y);
+      else shape.lineTo(x, y);
+    });
+    shape.closePath();
+    geometry = new THREE.ShapeGeometry(shape);
+  }
+
   const mesh = new THREE.Mesh(
     geometry,
-    new THREE.MeshBasicMaterial({ color: settings.fill, transparent: true, opacity: Math.max(0.08, settings.opacity), side: THREE.DoubleSide, depthWrite: false, toneMapped: false }),
+    new THREE.MeshBasicMaterial({
+      color: settings.fill,
+      transparent: true,
+      opacity: Math.max(0.08, settings.opacity),
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      toneMapped: false,
+    }),
   );
   mesh.rotation.x = -Math.PI / 2;
   mesh.position.set(center.x, 0.055, center.z);
   previewRoot.add(mesh);
-  const outlinePoints = gesture.tool === "circle"
-    ? Array.from({ length: 49 }, (_, i) => ({
-        x: bounds.center.x + Math.cos((i / 48) * Math.PI * 2) * bounds.width / 2,
-        y: bounds.center.y + Math.sin((i / 48) * Math.PI * 2) * bounds.height / 2,
-      }))
-    : [
-        { x: gesture.start.x, y: gesture.start.y },
-        { x: gesture.current.x, y: gesture.start.y },
-        { x: gesture.current.x, y: gesture.current.y },
-        { x: gesture.start.x, y: gesture.current.y },
-        { x: gesture.start.x, y: gesture.start.y },
-      ];
-  const outline = createPolyline(outlinePoints, settings.stroke, 1);
+  const outline = createPolyline(vertices, settings.stroke, 1, settings.width);
   if (outline) previewRoot.add(outline);
 }
 
-async function addSceneItems(items: Item[], permission: "DRAWING_CREATE" | "RULER_CREATE" | "TEXT_CREATE"): Promise<void> {
-  if (!await OBR.player.hasPermission(permission)) {
-    notify("Você não tem permissão para criar este tipo de item nesta cena.");
-    return;
-  }
+async function addSceneItems(
+  items: Item[],
+  permission: "DRAWING_CREATE" | "RULER_CREATE" | "TEXT_CREATE",
+  expectedSceneVersion = sceneSessionVersion,
+): Promise<void> {
   try {
+    if (!await OBR.player.hasPermission(permission)) {
+      notify("Você não tem permissão para criar este tipo de item nesta cena.");
+      return;
+    }
+    const sceneReady = await OBR.scene.isReady();
+    if (expectedSceneVersion !== sceneSessionVersion || !sceneReady || blockedByFog) {
+      notify("A cena mudou ou ficou indisponível. A criação foi cancelada.");
+      return;
+    }
     await OBR.scene.items.addItems(items);
+    if (expectedSceneVersion !== sceneSessionVersion || viewerDisposed) return;
     lastCreatedSceneItemIds = items.map((item) => item.id);
     if (toolUndoButton) toolUndoButton.disabled = false;
     notify(items.length > 1 ? "Elementos adicionados à cena." : "Item adicionado à cena.");
@@ -1111,7 +1294,8 @@ async function addSceneItems(items: Item[], permission: "DRAWING_CREATE" | "RULE
 }
 
 async function createSceneDrawing(gesture: SceneToolGesture): Promise<void> {
-  if (!currentFrame) return;
+  if (!currentFrame || blockedByFog) return;
+  const expectedSceneVersion = sceneSessionVersion;
   const settings = readDrawingSettings();
   try {
     if (gesture.tool === "measure") {
@@ -1130,7 +1314,7 @@ async function createSceneDrawing(gesture: SceneToolGesture): Promise<void> {
           .name("Régua 3D")
           .layer("RULER")
           .build();
-        await addSceneItems([ruler], "RULER_CREATE");
+        await addSceneItems([ruler], "RULER_CREATE", expectedSceneVersion);
       } else {
         if (measureReadout) {
           measureReadout.textContent = measurement;
@@ -1156,7 +1340,7 @@ async function createSceneDrawing(gesture: SceneToolGesture): Promise<void> {
         .layer("DRAWING")
         .name("Linha 3D")
         .build();
-      await addSceneItems([line], "DRAWING_CREATE");
+      await addSceneItems([line], "DRAWING_CREATE", expectedSceneVersion);
       return;
     }
     if (gesture.tool === "marker" || gesture.tool === "brush") {
@@ -1175,7 +1359,7 @@ async function createSceneDrawing(gesture: SceneToolGesture): Promise<void> {
         .layer("DRAWING")
         .name(gesture.tool === "brush" ? "Pincel 3D" : "Marcador 3D")
         .build();
-      await addSceneItems([curve], "DRAWING_CREATE");
+      await addSceneItems([curve], "DRAWING_CREATE", expectedSceneVersion);
       return;
     }
     if (["rectangle", "circle", "triangle", "hexagon"].includes(gesture.tool)) {
@@ -1199,7 +1383,7 @@ async function createSceneDrawing(gesture: SceneToolGesture): Promise<void> {
         .layer("DRAWING")
         .name(`${TOOL_COPY[gesture.tool].title} 3D`)
         .build();
-      await addSceneItems([shape], "DRAWING_CREATE");
+      await addSceneItems([shape], "DRAWING_CREATE", expectedSceneVersion);
     }
   } catch (error) {
     console.error("[Sistema 3D] Falha ao finalizar ferramenta:", error);
@@ -1208,8 +1392,10 @@ async function createSceneDrawing(gesture: SceneToolGesture): Promise<void> {
 }
 
 async function createFireAt(point: ScenePoint): Promise<void> {
-  if (!currentFrame) return;
+  if (!currentFrame || blockedByFog) return;
+  const expectedSceneVersion = sceneSessionVersion;
   const snapped = await snapToolPoint(point);
+  if (expectedSceneVersion !== sceneSessionVersion || blockedByFog) return;
   const radiusCells = Math.max(1, Number(fireRadiusInput?.value ?? 2));
   const radiusPixels = Math.max(1, gridDpi) * radiusCells;
   const zone = buildShape()
@@ -1236,16 +1422,19 @@ async function createFireAt(point: ScenePoint): Promise<void> {
     .name("Marcador de fogo")
     .layer("DRAWING")
     .build();
-  await addSceneItems([zone, marker], "DRAWING_CREATE");
+  await addSceneItems([zone, marker], "DRAWING_CREATE", expectedSceneVersion);
 }
 
 async function createSceneTextAt(point: ScenePoint): Promise<void> {
+  const expectedSceneVersion = sceneSessionVersion;
+  if (blockedByFog || !currentFrame) return;
   const value = sceneTextInput?.value.trim() ?? "";
   if (!value) {
     notify("Escreva o texto no painel de configurações antes de inseri-lo.");
     return;
   }
   const position = await snapToolPoint(point);
+  if (expectedSceneVersion !== sceneSessionVersion || blockedByFog) return;
   const label = buildLabel()
     .plainText(value)
     .position(position)
@@ -1256,7 +1445,7 @@ async function createSceneTextAt(point: ScenePoint): Promise<void> {
     .name("Anotação 3D")
     .layer("DRAWING")
     .build();
-  await addSceneItems([label], "DRAWING_CREATE");
+  await addSceneItems([label], "DRAWING_CREATE", expectedSceneVersion);
 }
 
 function startSceneToolGesture(event: PointerEvent): void {
@@ -1339,12 +1528,14 @@ function closeToolPanels(): void {
 }
 
 async function undoLastSceneToolItem(): Promise<void> {
+  const expectedSceneVersion = sceneSessionVersion;
   if (lastCreatedSceneItemIds.length === 0) {
     notify("Não há item recente para desfazer.");
     return;
   }
   try {
     const items = await OBR.scene.items.getItems(lastCreatedSceneItemIds);
+    if (expectedSceneVersion !== sceneSessionVersion || blockedByFog) return;
     if (items.length === 0) {
       lastCreatedSceneItemIds = [];
       if (toolUndoButton) toolUndoButton.disabled = true;
@@ -1357,6 +1548,7 @@ async function undoLastSceneToolItem(): Promise<void> {
     };
     const permissions = [...new Set(items.map((item) => permissionByLayer[item.layer]).filter(Boolean))];
     const results = await Promise.all(permissions.map((permission) => OBR.player.hasPermission(permission as "DRAWING_DELETE" | "RULER_DELETE" | "TEXT_DELETE")));
+    if (expectedSceneVersion !== sceneSessionVersion || blockedByFog || !await OBR.scene.isReady()) return;
     if (results.some((allowed) => !allowed)) {
       notify("Você não tem permissão para desfazer a criação desses itens.");
       return;
@@ -1373,6 +1565,34 @@ async function undoLastSceneToolItem(): Promise<void> {
 
 type TokenPermission = "CHARACTER_UPDATE" | "CHARACTER_DELETE" | "MOUNT_UPDATE" | "MOUNT_DELETE";
 
+const UPDATE_PERMISSION_BY_LAYER: Record<string, string> = {
+  MAP: "MAP_UPDATE",
+  DRAWING: "DRAWING_UPDATE",
+  PROP: "PROP_UPDATE",
+  MOUNT: "MOUNT_UPDATE",
+  CHARACTER: "CHARACTER_UPDATE",
+  ATTACHMENT: "ATTACHMENT_UPDATE",
+  NOTE: "NOTE_UPDATE",
+  TEXT: "TEXT_UPDATE",
+  RULER: "RULER_UPDATE",
+  FOG: "FOG_UPDATE",
+  POINTER: "POINTER_UPDATE",
+};
+
+const DELETE_PERMISSION_BY_LAYER: Record<string, string> = {
+  MAP: "MAP_DELETE",
+  DRAWING: "DRAWING_DELETE",
+  PROP: "PROP_DELETE",
+  MOUNT: "MOUNT_DELETE",
+  CHARACTER: "CHARACTER_DELETE",
+  ATTACHMENT: "ATTACHMENT_DELETE",
+  NOTE: "NOTE_DELETE",
+  TEXT: "TEXT_DELETE",
+  RULER: "RULER_DELETE",
+  FOG: "FOG_DELETE",
+  POINTER: "POINTER_DELETE",
+};
+
 function getTokenPermission(item: Item, operation: "UPDATE" | "DELETE"): TokenPermission {
   return item.layer === "CHARACTER"
     ? operation === "UPDATE" ? "CHARACTER_UPDATE" : "CHARACTER_DELETE"
@@ -1381,13 +1601,76 @@ function getTokenPermission(item: Item, operation: "UPDATE" | "DELETE"): TokenPe
 
 async function getPermittedTokenItems(items: Item[], operation: "UPDATE" | "DELETE"): Promise<Item[]> {
   const requiredPermissions = [...new Set(items.map((item) => getTokenPermission(item, operation)))];
-  const permissionResults = await Promise.all(
-    requiredPermissions.map(async (permission) => [permission, await OBR.player.hasPermission(permission)] as const),
-  );
+  const [permissionResults, ownerOnly, role] = await Promise.all([
+    Promise.all(requiredPermissions.map(async (permission) =>
+      [permission, await OBR.player.hasPermission(permission)] as const)),
+    items.some((item) => item.layer === "CHARACTER")
+      ? OBR.player.hasPermission("CHARACTER_OWNER_ONLY")
+      : Promise.resolve(false),
+    OBR.player.getRole(),
+  ]);
   const allowedPermissions = new Set(
     permissionResults.filter(([, allowed]) => allowed).map(([permission]) => permission),
   );
-  return items.filter((item) => allowedPermissions.has(getTokenPermission(item, operation)));
+  return items.filter((item) => {
+    if (!allowedPermissions.has(getTokenPermission(item, operation))) return false;
+    if (item.layer === "CHARACTER" &&
+        !canModifyCharacter(role, ownerOnly, item.createdUserId, OBR.player.id)) return false;
+    return true;
+  });
+}
+
+async function getPermittedAttachedItems(items: Item[]): Promise<Item[]> {
+  if (items.length === 0) return [];
+  const permissions = new Map<Item, string>();
+  for (const item of items) {
+    const permission = UPDATE_PERMISSION_BY_LAYER[item.layer];
+    if (!permission) return [];
+    permissions.set(item, permission);
+  }
+  const requiredPermissions = [...new Set(permissions.values())];
+  const [permissionResults, ownerOnly, role] = await Promise.all([
+    Promise.all(requiredPermissions.map(async (permission) =>
+      [permission, await OBR.player.hasPermission(permission as "ATTACHMENT_UPDATE")] as const)),
+    items.some((item) => item.layer === "CHARACTER")
+      ? OBR.player.hasPermission("CHARACTER_OWNER_ONLY")
+      : Promise.resolve(false),
+    OBR.player.getRole(),
+  ]);
+  const allowedPermissions = new Set(permissionResults.filter(([, allowed]) => allowed).map(([permission]) => permission));
+  return items.filter((item) => {
+    if (!allowedPermissions.has(permissions.get(item)!)) return false;
+    if (item.locked) return false;
+    if (item.layer === "CHARACTER" &&
+        !canModifyCharacter(role, ownerOnly, item.createdUserId, OBR.player.id)) return false;
+    return true;
+  });
+}
+
+async function canDeleteAttachedItems(items: Item[]): Promise<boolean> {
+  if (items.length === 0) return true;
+  const requiredPermissions = new Set<string>();
+  for (const item of items) {
+    const permission = DELETE_PERMISSION_BY_LAYER[item.layer];
+    if (!permission) return false;
+    requiredPermissions.add(permission);
+  }
+  const permissionResults = await Promise.all(
+    [...requiredPermissions].map(async (permission) =>
+      [permission, await OBR.player.hasPermission(permission as "MAP_DELETE")] as const),
+  );
+  const allowed = new Set(permissionResults.filter(([, result]) => result).map(([permission]) => permission));
+  if (items.some((item) => !allowed.has(DELETE_PERMISSION_BY_LAYER[item.layer]))) return false;
+
+  const characterOwnerOnly = items.some((item) => item.layer === "CHARACTER")
+    ? await OBR.player.hasPermission("CHARACTER_OWNER_ONLY")
+    : false;
+  if (!characterOwnerOnly) return true;
+  const role = await OBR.player.getRole();
+  return items.every((item) =>
+    item.layer !== "CHARACTER" ||
+    canModifyCharacter(role, characterOwnerOnly, item.createdUserId, OBR.player.id),
+  );
 }
 
 async function canUpdateTokenItems(items: Item[], operation: "UPDATE" | "DELETE"): Promise<boolean> {
@@ -1396,6 +1679,7 @@ async function canUpdateTokenItems(items: Item[], operation: "UPDATE" | "DELETE"
 }
 
 async function rotateSelectedTokens(amount: number): Promise<void> {
+  const expectedSceneVersion = sceneSessionVersion;
   const items = getSelectedTokenItems();
   if (items.length === 0) return;
   if (items.some((item) => item.locked)) {
@@ -1407,6 +1691,7 @@ async function rotateSelectedTokens(amount: number): Promise<void> {
       notify("Você não tem permissão para editar todos os tokens selecionados.");
       return;
     }
+    if (expectedSceneVersion !== sceneSessionVersion || blockedByFog || !await OBR.scene.isReady()) return;
     const ids = new Set(items.map((item) => item.id));
     await OBR.scene.items.updateItems(items, (draft) => {
       for (const item of draft) {
@@ -1420,6 +1705,7 @@ async function rotateSelectedTokens(amount: number): Promise<void> {
 }
 
 async function scaleSelectedTokens(factor: number): Promise<void> {
+  const expectedSceneVersion = sceneSessionVersion;
   const items = getSelectedTokenItems();
   if (items.length === 0) return;
   if (items.some((item) => item.locked)) {
@@ -1431,6 +1717,7 @@ async function scaleSelectedTokens(factor: number): Promise<void> {
       notify("Você não tem permissão para redimensionar todos os tokens selecionados.");
       return;
     }
+    if (expectedSceneVersion !== sceneSessionVersion || blockedByFog || !await OBR.scene.isReady()) return;
     const ids = new Set(items.map((item) => item.id));
     await OBR.scene.items.updateItems(items, (draft) => {
       for (const item of draft) {
@@ -1448,6 +1735,7 @@ async function scaleSelectedTokens(factor: number): Promise<void> {
 }
 
 async function toggleSelectedTokenLock(): Promise<void> {
+  const expectedSceneVersion = sceneSessionVersion;
   const items = getSelectedTokenItems();
   if (items.length === 0) return;
   try {
@@ -1455,6 +1743,7 @@ async function toggleSelectedTokenLock(): Promise<void> {
       notify("Você não tem permissão para bloquear ou desbloquear todos os tokens selecionados.");
       return;
     }
+    if (expectedSceneVersion !== sceneSessionVersion || blockedByFog || !await OBR.scene.isReady()) return;
     const lock = !items.every((item) => item.locked);
     const ids = new Set(items.map((item) => item.id));
     await OBR.scene.items.updateItems(items, (draft) => {
@@ -1468,6 +1757,7 @@ async function toggleSelectedTokenLock(): Promise<void> {
 }
 
 async function toggleSelectedTokenVisibility(): Promise<void> {
+  const expectedSceneVersion = sceneSessionVersion;
   const items = getSelectedTokenItems();
   if (items.length === 0) return;
   try {
@@ -1479,6 +1769,7 @@ async function toggleSelectedTokenVisibility(): Promise<void> {
       notify("Você não tem permissão para alterar a visibilidade desses tokens.");
       return;
     }
+    if (expectedSceneVersion !== sceneSessionVersion || blockedByFog || !await OBR.scene.isReady()) return;
     const visible = !items.every((item) => item.visible === false);
     const ids = new Set(items.map((item) => item.id));
     await OBR.scene.items.updateItems(items, (draft) => {
@@ -1493,6 +1784,7 @@ async function toggleSelectedTokenVisibility(): Promise<void> {
 }
 
 async function deleteSelectedTokens(): Promise<void> {
+  const expectedSceneVersion = sceneSessionVersion;
   const items = getSelectedTokenItems();
   if (items.length === 0) return;
   try {
@@ -1504,6 +1796,14 @@ async function deleteSelectedTokens(): Promise<void> {
     if (!window.confirm("Excluir " + count + (count === 1 ? " token selecionado?" : " tokens selecionados?"))) return;
     const ids = items.map((item) => item.id);
     const attachments = await OBR.scene.items.getItemAttachments(ids);
+    if (expectedSceneVersion !== sceneSessionVersion || blockedByFog) return;
+    const selectedIds = new Set(ids);
+    const attachmentItems = attachments.filter((item) => !selectedIds.has(item.id));
+    if (!await canDeleteAttachedItems(attachmentItems)) {
+      notify("A exclusão foi cancelada: você não tem permissão para remover todos os anexos desses tokens.");
+      return;
+    }
+    if (expectedSceneVersion !== sceneSessionVersion || blockedByFog || !await OBR.scene.isReady()) return;
     const allIds = [...new Set([...ids, ...attachments.map((item) => item.id)])];
     await OBR.scene.items.deleteItems(allIds);
     await OBR.player.deselect(ids);
@@ -1594,6 +1894,19 @@ async function beginTokenDrag(
     for (const item of [...attachmentState, ...selectedState]) stateById.set(item.id, item);
     const baseState = [...stateById.values()];
     if (baseState.length === 0) {
+      finishPendingPointerGesture(gesture);
+      return;
+    }
+
+    const rootIds = new Set(movableIds);
+    const attachedItems = baseState.filter((item) => !rootIds.has(item.id));
+    const permittedAttachments = await getPermittedAttachedItems(attachedItems);
+    if (!gesture.isActive || activePointerGesture !== gesture) {
+      finishPendingPointerGesture(gesture);
+      return;
+    }
+    if (permittedAttachments.length !== attachedItems.length) {
+      notify("Não foi possível mover o grupo: um ou mais anexos estão bloqueados ou sem permissão de atualização.");
       finishPendingPointerGesture(gesture);
       return;
     }
@@ -1883,22 +2196,47 @@ deselectButton?.addEventListener("click", () => {
 function updateBillboardFacing(): void {
   for (const record of records.values()) {
     if (record.object.parent !== tokenRoot) continue;
-    const itemId = record.mesh.userData.itemId as string;
-    const item = currentItems.find((candidate) => candidate.id === itemId);
-    if (!item) continue;
     const dx = camera.position.x - record.object.position.x;
     const dz = camera.position.z - record.object.position.z;
-    record.object.rotation.y = Math.atan2(dx, dz) + THREE.MathUtils.degToRad(item.rotation);
+    record.object.rotation.y = Math.atan2(dx, dz) + THREE.MathUtils.degToRad(record.itemRotation);
   }
 }
 
 const keysDown = new Set<string>();
 window.addEventListener("keydown", (event) => {
+  const target = event.target;
+  const isEditingText = target instanceof HTMLElement &&
+    (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+  if (isEditingText) return;
+
   if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(event.key.toLowerCase())) {
     keysDown.add(event.key.toLowerCase());
     if (event.key.toLowerCase().startsWith("arrow")) event.preventDefault();
   }
-  if (event.key === "Escape") void OBR.modal.close(MODAL_ID);
+  if (event.key === "Escape") {
+    event.preventDefault();
+    if (sceneToolGesture) {
+      sceneToolGesture = null;
+      clearToolPreview();
+      if (measureReadout) measureReadout.hidden = true;
+      controls.enabled = true;
+      return;
+    }
+    if (activePointerGesture && !activePointerGesture.released) {
+      finishPendingPointerGesture(activePointerGesture);
+      return;
+    }
+    if (event.key.toLowerCase() === "r" && currentFrame) {
+      event.preventDefault();
+      fitCamera(currentFrame);
+      return;
+    }
+    if ((toolSettingsPanel && !toolSettingsPanel.hidden) || (integrationsPanel && !integrationsPanel.hidden)) {
+      closeToolPanels();
+      return;
+    }
+    void OBR.modal.close(MODAL_ID);
+  }
 });
 window.addEventListener("keyup", (event) => keysDown.delete(event.key.toLowerCase()));
 function cancelUnreleasedPointerGesture(): void {
@@ -1931,9 +2269,14 @@ function moveCameraWithKeys(delta: number): void {
   controls.target.add(movement);
 }
 
+const frameClock = new THREE.Clock();
+
 function animate(): void {
-  requestAnimationFrame(animate);
-  moveCameraWithKeys(1 / 60);
+  if (!animationRunning) return;
+  animationFrameId = requestAnimationFrame(animate);
+  // Cap long pauses (background tabs / mobile suspension) to avoid jumps.
+  const delta = Math.min(frameClock.getDelta(), 0.05);
+  moveCameraWithKeys(delta);
   controls.update();
   updateBillboardFacing();
   updateFireEffects(performance.now() / 1000);
@@ -1947,8 +2290,18 @@ function resize(): void {
   camera.updateProjectionMatrix();
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  for (const material of wideLineMaterials) material.resolution.set(width, height);
 }
 window.addEventListener("resize", resize);
+
+renderer.domElement.addEventListener("webglcontextlost", (event) => {
+  event.preventDefault();
+  setStatus("Contexto gráfico perdido. O navegador está tentando restaurar o modo 3D…");
+});
+renderer.domElement.addEventListener("webglcontextrestored", () => {
+  setStatus("Contexto gráfico restaurado. Reconstruindo a visualização…");
+  void loadScene();
+});
 
 document.querySelector<HTMLButtonElement>("#close-viewer")?.addEventListener("click", () => {
   endTokenDrag();
@@ -1975,9 +2328,15 @@ if (!OBR.isAvailable) {
   OBR.onReady(() => {
     // A seleção do 3D e a seleção normal do Owlbear são a mesma seleção do jogador.
     unsubscribePlayer = OBR.player.onChange((player) => {
+      currentPlayerRole = player.role;
       syncSelectedTokens(player.selection ?? []);
+      refreshTokenToolbar();
     });
-    unsubscribeGrid = OBR.scene.grid.onChange(() => void refreshGridSettings());
+    unsubscribeGrid = OBR.scene.grid.onChange(() => {
+      void refreshGridSettings().then(() => {
+        if (!blockedByFog && currentItems.length > 0) syncScene(currentItems);
+      });
+    });
     void refreshGridSettings();
     void OBR.player.getSelection().then((ids) => syncSelectedTokens(ids ?? [])).catch((error) => {
       console.warn("[Sistema 3D] Não foi possível ler a seleção inicial:", error);
@@ -1992,6 +2351,7 @@ if (!OBR.isAvailable) {
     // Instale os listeners antes da consulta inicial. Assim, uma cena que
     // terminar de carregar durante loadScene() não fica sem atualização.
     unsubscribeReady = OBR.scene.onReadyChange((ready: boolean) => {
+      sceneSessionVersion += 1;
       if (ready) void loadScene();
       else {
         sceneOperationVersion += 1;
@@ -2006,16 +2366,21 @@ if (!OBR.isAvailable) {
     unsubscribeItems = OBR.scene.items.onChange((items: Item[]) => {
       const requestVersion = ++sceneOperationVersion;
       const isCurrent = () => requestVersion === sceneOperationVersion;
-      void (async () => {
-        try {
-          const safe = await checkFogSafety(items, isCurrent);
-          if (isCurrent() && safe) syncScene(items);
-        } catch (error) {
-          if (!isCurrent()) return;
-          console.error("[Sistema 3D] Erro ao sincronizar alterações da cena:", error);
-          setStatus("Erro ao sincronizar a cena");
-        }
-      })();
+
+      // Token movement emits frequent full-scene snapshots. Only re-query Fog
+      // and role state when visibility blockers may have changed.
+      if (!blockedByFog && !hasVisionBlockingItems(items)) {
+        syncScene(items);
+        return;
+      }
+
+      void checkFogSafety(items, isCurrent).then((safe) => {
+        if (isCurrent() && safe) syncScene(items);
+      }).catch((error) => {
+        if (!isCurrent()) return;
+        console.error("[Sistema 3D] Erro ao sincronizar alterações da cena:", error);
+        setStatus("Erro ao sincronizar a cena");
+      });
     });
     unsubscribeFog = OBR.scene.fog.onChange(() => void loadScene());
     void loadScene();
@@ -2023,7 +2388,12 @@ if (!OBR.isAvailable) {
 }
 
 window.addEventListener("pagehide", () => {
+  viewerDisposed = true;
+  animationRunning = false;
+  if (animationFrameId) cancelAnimationFrame(animationFrameId);
   endTokenDrag();
+  sceneToolGesture = null;
+  clearWorld();
   unsubscribeItems?.();
   unsubscribeFog?.();
   unsubscribeReady?.();
@@ -2031,7 +2401,12 @@ window.addEventListener("pagehide", () => {
   unsubscribeGrid?.();
   controls.dispose();
   renderer.dispose();
+  placeholderTexture.dispose();
   for (const texture of textures.values()) texture.dispose();
+  textures.clear();
+  pendingTextures.clear();
+  notifiedTextureFailures.clear();
+  wideLineMaterials.clear();
 });
 
 animate();

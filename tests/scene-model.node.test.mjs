@@ -52,6 +52,25 @@ test('preserva escala e proporção de miniaturas', () => {
   assert.deepEqual(getImageWorldSize(token), { width: 1, height: 1.5 });
 });
 
+test('converte o DPI da imagem para a resolução da grade da cena', () => {
+  const map = imageItem({
+    image: { width: 1200, height: 800, mime: 'image/png', url: 'https://example.com/map.png' },
+    grid: { dpi: 200, offset: [{ x: 0, y: 0 }] },
+  });
+  assert.deepEqual(getImageWorldSize(map, 100), { width: 6, height: 4 });
+  assert.deepEqual(getImageWorldSize(map, 150), { width: 9, height: 6 });
+});
+
+test('usa a mesma escala normalizada para calcular o enquadramento', () => {
+  const map = imageItem({
+    image: { width: 1200, height: 800, mime: 'image/png', url: 'https://example.com/map.png' },
+    grid: { dpi: 200, offset: [{ x: 0, y: 0 }] },
+  });
+  const frame = calculateSceneFrame([map], 100);
+  assert.equal(frame.width, 600);
+  assert.equal(frame.height, 400);
+});
+
 test('conta apenas imagens visíveis', () => {
   const counts = getSceneCounts([
     imageItem(),
@@ -68,7 +87,7 @@ test('manifest é JSON válido e aponta para a página inicial', async () => {
   assert.equal(manifest.action.popover, 'https://onze1onze.github.io/Sistema-3-dimensoes/index.html');
   assert.equal(manifest.icon, 'https://onze1onze.github.io/Sistema-3-dimensoes/icon.svg');
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(manifest.version, '1.1.0');
+  assert.equal(manifest.version, '1.1.1');
   assert.equal(packageJson.version, manifest.version);
   assert.match(manifest.icon, /^https:\/\/onze1onze\.github\.io\//);
 });
