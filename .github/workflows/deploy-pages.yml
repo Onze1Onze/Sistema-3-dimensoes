@@ -16,6 +16,8 @@ on:
       - "package-lock.json"
       - "vite.config.ts"
       - "tsconfig.json"
+      - ".github/workflows/deploy-pages.yml"
+      - "README.md"
 
 permissions:
   contents: read
