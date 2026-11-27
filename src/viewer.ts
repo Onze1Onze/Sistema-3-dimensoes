@@ -231,8 +231,10 @@ let unsubscribeReady: (() => void) | null = null;
 let unsubscribePlayer: (() => void) | null = null;
 let unsubscribeGrid: (() => void) | null = null;
 
-function setStatus(text: string): void {
+function setStatus(text: string, state: "loading" | "ready" | "warning" | "error" = "loading"): void {
   if (statusLabel) statusLabel.textContent = text;
+  const statusContainer = statusLabel?.closest<HTMLElement>(".scene-status-wrap");
+  if (statusContainer) statusContainer.dataset.state = state;
 }
 
 function showMessage(title: string, body: string, symbol = "!"): void {
@@ -473,7 +475,7 @@ function syncScene(items: Item[]): void {
   if (!frame) {
     clearWorld();
     showMessage("Nenhum mapa encontrado", "Esta cena não possui uma imagem na camada MAP. Adicione ou selecione uma cena com um mapa no Owlbear e tente novamente.");
-    setStatus("Aguardando imagem na camada MAP");
+    setStatus("Aguardando mapa na camada MAP", "warning");
     currentFrame = null;
     return;
   }
@@ -520,7 +522,7 @@ function syncScene(items: Item[]): void {
 
   const count = images.length;
   hideMessage();
-  setStatus(`${count} elemento(s) sincronizado(s) · cena em tempo real`);
+  setStatus(`${count} elemento(s) sincronizado(s) · cena em tempo real`, "ready");
 }
 
 function disposeObjectTree(object: THREE.Object3D): void {
@@ -989,8 +991,8 @@ async function checkFogSafety(items: Item[], isCurrent: () => boolean = () => tr
     const detail = playerRole === "GM"
       ? "Esta sala possui Fog of War, paredes ou fontes de luz de visão. O protótipo ainda não reproduz a visibilidade dinâmica do Owlbear; a visualização foi bloqueada para evitar inconsistências. Remova/desative o Fog of War apenas em uma cópia de teste para experimentar o modo 3D."
       : "Esta sala utiliza Fog of War, paredes ou fontes de luz de visão. Como o protótipo ainda não reproduz a visibilidade dinâmica do Owlbear, o modo 3D foi bloqueado para impedir que áreas ocultas sejam reveladas. O mapa 2D continua funcionando normalmente.";
-    showMessage("Modo 3D indisponível nesta cena", detail, "🔒");
-    setStatus("Bloqueado preventivamente: Fog of War detectado");
+    showMessage("Modo 3D indisponível nesta cena", detail, "!");
+    setStatus("Cena bloqueada por configuração de visão", "warning");
     return false;
   }
   blockedByFog = false;
@@ -1010,7 +1012,7 @@ async function loadScene(): Promise<void> {
       clearWorld();
       updateCounts([]);
       showMessage("Nenhuma cena aberta", "Abra uma cena no Owlbear Rodeo e depois inicie o modo 3D.");
-      setStatus("Aguardando cena do Owlbear");
+      setStatus("Aguardando cena do Owlbear", "warning");
       return;
     }
 
@@ -1033,7 +1035,7 @@ async function loadScene(): Promise<void> {
     if (!isCurrent()) return;
     console.error("[Sistema 3D] Erro ao carregar a cena:", error);
     showMessage("Erro ao carregar a cena", "Não foi possível ler os dados desta sala. Verifique se a extensão está habilitada e tente novamente.");
-    setStatus("Erro na leitura da cena");
+    setStatus("Erro na leitura da cena", "error");
   }
 }
 
@@ -1412,12 +1414,12 @@ async function createFireAt(point: ScenePoint): Promise<void> {
     .strokeColor("#ffb56d")
     .strokeOpacity(0.9)
     .strokeWidth(4)
-    .name("🔥 Área de fogo 3D")
+    .name("Área de fogo 3D")
     .metadata({ [SCENE_TOOL_METADATA]: { kind: "fire", radiusPixels, version: 1 } })
     .layer("DRAWING")
     .build();
   const marker = buildLabel()
-    .plainText("🔥 FOGO")
+    .plainText("FOGO")
     .position(snapped)
     .backgroundColor("#3b1d15")
     .backgroundOpacity(0.88)
@@ -1523,12 +1525,16 @@ function endSceneToolGesture(event: PointerEvent, cancelled = false): void {
 function openToolSettings(): void {
   if (toolSettingsPanel) toolSettingsPanel.hidden = false;
   if (integrationsPanel) integrationsPanel.hidden = true;
+  toolSettingsToggle?.setAttribute("aria-expanded", "true");
+  integrationsToggle?.setAttribute("aria-expanded", "false");
   updateToolSettingsPanel();
 }
 
 function closeToolPanels(): void {
   if (toolSettingsPanel) toolSettingsPanel.hidden = true;
   if (integrationsPanel) integrationsPanel.hidden = true;
+  toolSettingsToggle?.setAttribute("aria-expanded", "false");
+  integrationsToggle?.setAttribute("aria-expanded", "false");
 }
 
 async function undoLastSceneToolItem(): Promise<void> {
@@ -2154,12 +2160,15 @@ sceneToolButtons.forEach((button) => {
 });
 toolSettingsToggle?.addEventListener("click", () => {
   if (toolSettingsPanel?.hidden) openToolSettings();
-  else if (toolSettingsPanel) toolSettingsPanel.hidden = true;
+  else closeToolPanels();
 });
 toolSettingsClose?.addEventListener("click", closeToolPanels);
 integrationsToggle?.addEventListener("click", () => {
-  if (integrationsPanel) integrationsPanel.hidden = !integrationsPanel.hidden;
+  const shouldOpen = Boolean(integrationsPanel?.hidden);
+  if (integrationsPanel) integrationsPanel.hidden = !shouldOpen;
   if (toolSettingsPanel) toolSettingsPanel.hidden = true;
+  integrationsToggle?.setAttribute("aria-expanded", String(shouldOpen));
+  toolSettingsToggle?.setAttribute("aria-expanded", "false");
 });
 integrationsClose?.addEventListener("click", closeToolPanels);
 toolUndoButton?.addEventListener("click", () => void undoLastSceneToolItem());
@@ -2300,10 +2309,10 @@ window.addEventListener("resize", resize);
 
 renderer.domElement.addEventListener("webglcontextlost", (event) => {
   event.preventDefault();
-  setStatus("Contexto gráfico perdido. O navegador está tentando restaurar o modo 3D…");
+  setStatus("Contexto gráfico perdido. Aguardando restauração…", "error");
 });
 renderer.domElement.addEventListener("webglcontextrestored", () => {
-  setStatus("Contexto gráfico restaurado. Reconstruindo a visualização…");
+  setStatus("Contexto gráfico restaurado. Reconstruindo…", "loading");
   void loadScene();
 });
 
@@ -2364,7 +2373,7 @@ if (!OBR.isAvailable) {
         clearWorld();
         updateCounts([]);
         showMessage("Cena fechada", "Abra uma cena no Owlbear Rodeo para continuar.");
-        setStatus("Aguardando uma cena do Owlbear");
+        setStatus("Aguardando uma cena do Owlbear", "warning");
       }
     });
     unsubscribeItems = OBR.scene.items.onChange((items: Item[]) => {
@@ -2383,7 +2392,7 @@ if (!OBR.isAvailable) {
       }).catch((error) => {
         if (!isCurrent()) return;
         console.error("[Sistema 3D] Erro ao sincronizar alterações da cena:", error);
-        setStatus("Erro ao sincronizar a cena");
+        setStatus("Erro ao sincronizar a cena", "error");
       });
     });
     unsubscribeFog = OBR.scene.fog.onChange(() => void loadScene());
