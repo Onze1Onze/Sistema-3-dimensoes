@@ -214,6 +214,7 @@ let unsubscribeItems: (() => void) | null = null;
 let unsubscribeFog: (() => void) | null = null;
 let unsubscribeReady: (() => void) | null = null;
 let unsubscribePlayer: (() => void) | null = null;
+let unsubscribeGrid: (() => void) | null = null;
 
 function setStatus(text: string): void {
   if (statusLabel) statusLabel.textContent = text;
@@ -809,6 +810,29 @@ function fitCamera(frame: SceneFrame): void {
   controls.update();
 }
 
+async function refreshGridSettings(): Promise<void> {
+  try {
+    const [dpi, scale] = await Promise.all([
+      OBR.scene.grid.getDpi(),
+      OBR.scene.grid.getScale(),
+    ]);
+    if (Number.isFinite(dpi) && dpi > 0) gridDpi = dpi;
+    const parsed = scale?.parsed;
+    if (parsed) {
+      gridScaleInfo = {
+        multiplier: Number(parsed.multiplier) || 1,
+        unit: String(parsed.unit ?? ""),
+        digits: Number(parsed.digits) || 0,
+      };
+    } else {
+      gridScaleInfo = null;
+    }
+  } catch (error) {
+    console.warn("[Sistema 3D] Não foi possível ler a configuração da grade:", error);
+    gridScaleInfo = null;
+  }
+}
+
 async function checkFogSafety(items: Item[], isCurrent: () => boolean = () => true): Promise<boolean> {
   const playerRole = await OBR.player.getRole();
   if (!isCurrent()) return false;
@@ -851,6 +875,9 @@ async function loadScene(): Promise<void> {
     }
 
     const items = await OBR.scene.items.getItems();
+    if (!isCurrent()) return;
+
+    await refreshGridSettings();
     if (!isCurrent()) return;
 
     const safe = await checkFogSafety(items, isCurrent);
@@ -1760,12 +1787,15 @@ window.addEventListener("pointercancel", (event: PointerEvent) => {
 }, { capture: true });
 
 renderer.domElement.addEventListener("lostpointercapture", (event: PointerEvent) => {
+  if (sceneToolGesture?.pointerId === event.pointerId) {
+    endSceneToolGesture({ pointerId: event.pointerId } as PointerEvent, true);
+    return;
+  }
   const gesture = activePointerGesture;
   // O navegador também dispara este evento após um pointerup normal. Nesse
   // caso o gesto precisa continuar vivo até o SDK concluir a interação.
   if (!gesture || gesture.pointerId !== event.pointerId || gesture.released) return;
   finishPendingPointerGesture(gesture);
-  if (sceneToolGesture?.pointerId === event.pointerId) endSceneToolGesture({ pointerId: event.pointerId } as PointerEvent, true);
 });
 
 sceneToolButtons.forEach((button) => {
@@ -1920,6 +1950,8 @@ if (!OBR.isAvailable) {
     unsubscribePlayer = OBR.player.onChange((player) => {
       syncSelectedTokens(player.selection ?? []);
     });
+    unsubscribeGrid = OBR.scene.grid.onChange(() => void refreshGridSettings());
+    void refreshGridSettings();
     void OBR.player.getSelection().then((ids) => syncSelectedTokens(ids ?? [])).catch((error) => {
       console.warn("[Sistema 3D] Não foi possível ler a seleção inicial:", error);
     });
@@ -1969,6 +2001,7 @@ window.addEventListener("pagehide", () => {
   unsubscribeFog?.();
   unsubscribeReady?.();
   unsubscribePlayer?.();
+  unsubscribeGrid?.();
   controls.dispose();
   renderer.dispose();
   for (const texture of textures.values()) texture.dispose();
