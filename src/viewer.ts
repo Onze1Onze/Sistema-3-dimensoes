@@ -33,6 +33,8 @@ const messageSymbol = document.querySelector<HTMLElement>("#message-symbol");
 const toast = document.querySelector<HTMLDivElement>("#toast");
 const tokenToolbar = document.querySelector<HTMLElement>("#token-toolbar");
 const selectionLabel = document.querySelector<HTMLElement>("#selection-label");
+const scaleDownButton = document.querySelector<HTMLButtonElement>("#scale-token-down");
+const scaleUpButton = document.querySelector<HTMLButtonElement>("#scale-token-up");
 const rotateLeftButton = document.querySelector<HTMLButtonElement>("#rotate-token-left");
 const rotateRightButton = document.querySelector<HTMLButtonElement>("#rotate-token-right");
 const lockButton = document.querySelector<HTMLButtonElement>("#toggle-token-lock");
@@ -569,6 +571,34 @@ async function rotateSelectedTokens(amount: number): Promise<void> {
   }
 }
 
+async function scaleSelectedTokens(factor: number): Promise<void> {
+  const items = getSelectedTokenItems();
+  if (items.length === 0) return;
+  if (items.some((item) => item.locked)) {
+    notify("Desbloqueie os tokens antes de redimensioná-los.");
+    return;
+  }
+  try {
+    if (!await canUpdateTokenItems(items, "UPDATE")) {
+      notify("Você não tem permissão para redimensionar todos os tokens selecionados.");
+      return;
+    }
+    const ids = new Set(items.map((item) => item.id));
+    await OBR.scene.items.updateItems(items, (draft) => {
+      for (const item of draft) {
+        if (!ids.has(item.id)) continue;
+        item.scale = {
+          x: THREE.MathUtils.clamp(item.scale.x * factor, 0.05, 20),
+          y: THREE.MathUtils.clamp(item.scale.y * factor, 0.05, 20),
+        };
+      }
+    });
+  } catch (error) {
+    console.error("[Sistema 3D] Falha ao redimensionar tokens:", error);
+    notify("Não foi possível redimensionar os tokens selecionados.");
+  }
+}
+
 async function toggleSelectedTokenLock(): Promise<void> {
   const items = getSelectedTokenItems();
   if (items.length === 0) return;
@@ -823,6 +853,8 @@ renderer.domElement.addEventListener("pointercancel", (_event: PointerEvent) => 
   endTokenDrag();
 });
 
+scaleDownButton?.addEventListener("click", () => void scaleSelectedTokens(0.9));
+scaleUpButton?.addEventListener("click", () => void scaleSelectedTokens(1.1));
 rotateLeftButton?.addEventListener("click", () => void rotateSelectedTokens(-15));
 rotateRightButton?.addEventListener("click", () => void rotateSelectedTokens(15));
 lockButton?.addEventListener("click", () => void toggleSelectedTokenLock());
